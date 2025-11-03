@@ -1,0 +1,362 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Base responsiva */
+html {
+  overflow-x: hidden;
+}
+
+body {
+  overflow-x: hidden;
+  width: 100%;
+  max-width: 100vw;
+  background-color: #0f0f0f;
+}
+
+/* Elementos de mídia responsivos */
+video {
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+
+/* Imagens responsivas, mas mantém display inline quando necessário para flex */
+img {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Garantir que avatares funcionem corretamente no flexbox */
+header img[alt*="usuário"],
+header img[alt*="Usuário"],
+header img[alt*="perfil"],
+header img[alt*="Perfil"],
+button img[class*="rounded-full"] {
+  display: inline-block !important;
+  vertical-align: middle;
+}
+
+/* Garantir que avatar mobile sempre apareça */
+@media (max-width: 640px) {
+  header button[data-avatar-type="mobile"] {
+    display: flex !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    position: absolute !important;
+    right: 8px !important;
+    top: 50% !important;
+    transform: translateY(-50%) !important;
+    z-index: 61 !important;
+    flex-shrink: 0 !important;
+    width: 36px !important;
+    height: 36px !important;
+    min-width: 36px !important;
+    min-height: 36px !important;
+  }
+  
+  /* Garantir que avatar desktop não apareça no mobile */
+  header button[data-avatar-type="desktop"] {
+    display: none !important;
+  }
+  
+  /* Garantir que o header não corte o avatar */
+  header {
+    position: relative !important;
+    overflow: visible !important;
+  }
+}
+
+/* Garantir que avatar desktop apareça no desktop */
+@media (min-width: 640px) {
+  header button[data-avatar-type="mobile"] {
+    display: none !important;
+  }
+  
+  header button[data-avatar-type="desktop"] {
+    display: flex !important;
+  }
+}
+
+/* Textos responsivos com clamp */
+.responsive-text {
+  font-size: clamp(0.875rem, 2vw, 1rem);
+}
+
+.responsive-text-lg {
+  font-size: clamp(1rem, 2.5vw, 1.5rem);
+}
+
+.responsive-text-xl {
+  font-size: clamp(1.25rem, 3vw, 2rem);
+}
+
+/* Containers responsivos */
+.container-responsive {
+  width: 100%;
+  max-width: 100%;
+  padding-left: 1rem;
+  padding-right: 1rem;
+}
+
+@media (min-width: 640px) {
+  .container-responsive {
+    padding-left: 1.5rem;
+    padding-right: 1.5rem;
+  }
+}
+
+/* Estilos para o player de vídeo */
+input[type="range"].slider {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  background: #4b5563;
+  border-radius: 9999px;
+  outline: none;
+}
+
+input[type="range"].slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  background: #3b82f6;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+input[type="range"].slider::-webkit-slider-thumb:hover {
+  width: 18px;
+  height: 18px;
+  background: #2563eb;
+}
+
+input[type="range"].slider::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  background: #3b82f6;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+input[type="range"].slider::-moz-range-thumb:hover {
+  width: 18px;
+  height: 18px;
+  background: #2563eb;
+}
+
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  background: #4b5563;
+  border-radius: 9999px;
+  outline: none;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  background: #ffffff;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+input[type="range"]::-webkit-slider-thumb:hover {
+  width: 16px;
+  height: 16px;
+  background: #e5e7eb;
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  background: #ffffff;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+input[type="range"]::-moz-range-thumb:hover {
+  width: 16px;
+  height: 16px;
+  background: #e5e7eb;
+}
+
+/* Esconde scrollbar mas mantém funcionalidade */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* Scroll horizontal melhorado para mobile */
+@media (max-width: 640px) {
+  .overflow-x-auto {
+    -webkit-overflow-scrolling: touch !important;
+    scroll-behavior: smooth;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    overflow-y: hidden !important;
+    overflow-x: auto !important;
+    will-change: scroll-position;
+    width: 100% !important;
+    max-width: 100vw !important;
+    position: relative;
+  }
+  
+  .overflow-x-auto::-webkit-scrollbar {
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
+  }
+  
+  /* Container interno com largura mínima para forçar scroll */
+  .overflow-x-auto > .flex {
+    min-width: fit-content !important;
+    width: max-content !important;
+    display: flex !important;
+    flex-wrap: nowrap !important;
+    flex-shrink: 0 !important;
+  }
+  
+  /* Snap scroll para filtros - permite scroll suave */
+  .snap-x {
+    scroll-snap-type: x mandatory;
+    scroll-padding: 0 12px;
+  }
+  
+  .snap-start {
+    scroll-snap-align: start;
+    scroll-snap-stop: normal;
+  }
+  
+  /* Garantir que botões não encolham */
+  .overflow-x-auto button {
+    flex-shrink: 0 !important;
+    min-width: auto !important;
+  }
+}
+
+/* Melhorias de touch para mobile */
+.touch-manipulation {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
+/* Botões com área de toque adequada em mobile */
+@media (max-width: 640px) {
+  button {
+    min-height: 44px;
+    -webkit-tap-highlight-color: rgba(255, 255, 255, 0.1);
+  }
+}
+
+/* Slider mais fácil de usar em mobile */
+input[type="range"] {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-tap-highlight-color: transparent;
+}
+
+input[type="range"]::-moz-range-thumb {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Barra de progresso mais grossa em mobile para facilitar toque */
+@media (max-width: 640px) {
+  input[type="range"].slider {
+    height: 6px;
+  }
+  
+  input[type="range"].slider::-webkit-slider-thumb {
+    width: 20px;
+    height: 20px;
+  }
+  
+  input[type="range"].slider::-moz-range-thumb {
+    width: 20px;
+    height: 20px;
+  }
+}
+
+/* Melhorias de UX Mobile */
+@media (max-width: 600px) {
+  /* Transições suaves para elementos interativos */
+  button, a, [role="button"] {
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  
+  /* Feedback tátil melhorado */
+  .file-card:active,
+  button:active {
+    transform: scale(0.98);
+  }
+  
+  /* Bordas mais suaves e arredondadas */
+  .rounded-lg {
+    border-radius: 12px;
+  }
+  
+  .rounded-xl {
+    border-radius: 16px;
+  }
+  
+  /* Sombras mais suaves */
+  .shadow-lg {
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  }
+  
+  /* Reduzir ruído visual em textos secundários */
+  .text-gray-400,
+  .text-gray-500 {
+    font-size: 0.75rem;
+  }
+}
+
+/* Animações suaves */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.fade-in {
+  animation: fadeIn 0.2s ease-out;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateX(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.slide-in {
+  animation: slideIn 0.3s ease-out;
+}

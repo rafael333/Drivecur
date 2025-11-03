@@ -1,0 +1,38 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Regras para a coleção de tokens do Google Drive
+    // Permite que usuários autenticados leiam e escrevam apenas seus próprios tokens
+    match /googleDriveTokens/{userId} {
+      // Permite leitura e escrita apenas se o userId do documento corresponde ao usuário autenticado
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // Regras para múltiplas contas do Google Drive
+    // Permite que usuários autenticados leiam e escrevam apenas suas próprias contas
+    match /users/{userId}/googleDriveAccounts/{accountId} {
+      // Permite leitura e escrita apenas se o userId corresponde ao usuário autenticado
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // Regras para o progresso dos vídeos
+    // Permite que usuários autenticados leiam e escrevam apenas seus próprios progressos
+    match /users/{userId}/videoProgress/{fileId} {
+      // Permite leitura e escrita apenas se o userId corresponde ao usuário autenticado
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // Regras para as anotações dos vídeos
+    // Permite que usuários autenticados leiam e escrevam apenas suas próprias anotações
+    match /users/{userId}/videoAnnotations/{annotationId} {
+      // Permite leitura e escrita apenas se o userId corresponde ao usuário autenticado
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // Regra padrão: nega acesso a qualquer outra coleção não especificada
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
+
