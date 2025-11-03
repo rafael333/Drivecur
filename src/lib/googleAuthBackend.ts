@@ -11,9 +11,13 @@ const getBackendUrl = (): string => {
   // Se estiver no browser, tenta detectar automaticamente
   if (typeof window !== 'undefined') {
     const hostname = window.location.hostname;
-    // Em produção ou ambiente não-localhost, assume que o backend está no mesmo domínio
+    
+    // Se estiver em produção na Netlify (ou outro domínio não-localhost)
+    // Usa as Netlify Functions que ficam no mesmo domínio
     if (hostname !== 'localhost' && hostname !== '127.0.0.1') {
-      return `${window.location.protocol}//${hostname}:3001`;
+      // Netlify Functions ficam em /api/nome-da-funcao
+      // Retorna string vazia para usar caminhos relativos
+      return '';
     }
   }
   
@@ -40,7 +44,13 @@ export async function exchangeCodeForTokens(
   redirectUri: string
 ): Promise<TokenResponse | null> {
   try {
-    const response = await fetch(`${BACKEND_URL}/api/google/oauth/token`, {
+    // Na Netlify, usa /api/google-oauth-token (sem /api extra)
+    // Em desenvolvimento, usa /api/google/oauth/token
+    const endpoint = BACKEND_URL 
+      ? `${BACKEND_URL}/api/google/oauth/token`
+      : '/api/google-oauth-token';
+    
+    const response = await fetch(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -52,7 +62,7 @@ export async function exchangeCodeForTokens(
       const error = await response.json();
       console.error('[Google Auth Backend] ❌ Erro ao trocar código por tokens:', error);
       console.error('[Google Auth Backend] Status:', response.status);
-      console.error('[Google Auth Backend] URL:', `${BACKEND_URL}/api/google/oauth/token`);
+      console.error('[Google Auth Backend] URL:', endpoint);
       return null;
     }
 
@@ -71,7 +81,13 @@ export async function exchangeCodeForTokens(
 // Renova o access token usando o refresh token
 export async function refreshAccessToken(refreshToken: string): Promise<RefreshResponse | null> {
   try {
-    const response = await fetch(`${BACKEND_URL}/api/google/oauth/refresh`, {
+    // Na Netlify, usa /api/google-oauth-refresh (sem /api extra)
+    // Em desenvolvimento, usa /api/google/oauth/refresh
+    const endpoint = BACKEND_URL
+      ? `${BACKEND_URL}/api/google/oauth/refresh`
+      : '/api/google-oauth-refresh';
+    
+    const response = await fetch(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
