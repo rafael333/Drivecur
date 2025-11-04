@@ -1,0 +1,17 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "18"
+
+[[redirects]]
+  from = "/api/google-oauth-token"
+  to = "/.netlify/functions/google-oauth-token"
+  status = 200
+
+[[redirects]]
+  from = "/api/google-oauth-refresh"
+  to = "/.netlify/functions/google-oauth-refresh"
+  status = 200
+

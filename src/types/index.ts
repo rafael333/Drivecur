@@ -1,0 +1,40 @@
+export interface FileItem {
+  id: string;
+  name: string;
+  originalName?: string;
+  extension?: string;
+  type: 'pdf' | 'pptx' | 'xlsx' | 'docx' | 'folder' | 'png' | 'jpg' | 'zip' | 'video';
+  owner: string;
+  ownerEmail?: string;
+  ownerPhoto?: string;
+  lastModifiedBy?: string;
+  lastModifiedByEmail?: string;
+  lastModifiedByPhoto?: string;
+  createdDate: string;
+  createdTime: string;
+  modifiedDate: string;
+  modifiedTime: string;
+  viewedByMeTime?: string;
+  size: string;
+  sizeBytes?: number;
+  description?: string;
+  webViewLink?: string;
+  webContentLink?: string;
+  thumbnailLink?: string;
+  shared?: boolean;
+  starred?: boolean;
+  canDownload?: boolean;
+  canCopy?: boolean;
+  canEdit?: boolean;
+  canShare?: boolean;
+  canDelete?: boolean;
+  imageWidth?: number;
+  imageHeight?: number;
+  videoWidth?: number;
+  videoHeight?: number;
+  videoDuration?: string;
+  permissionCount?: number;
+  mimeType?: string;
+}
+
+export type FilterType = 'all' | 'pdf' | 'video' | 'image' | 'folder';
