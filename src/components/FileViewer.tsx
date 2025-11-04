@@ -1,6 +1,7 @@
 import { X, Maximize2, Minimize2, ExternalLink } from 'lucide-react';
 import { FileItem } from '../types';
 import { VideoPlayer } from './VideoPlayer';
+import { PDFViewer } from './PDFViewer';
 
 interface FileViewerProps {
   file: FileItem;
@@ -76,6 +77,17 @@ export function FileViewer({ file, onClose, accessToken }: FileViewerProps) {
       return <VideoPlayer file={file} accessToken={accessToken} />;
     }
 
+    // PDFs - usa visualizador customizado
+    // Verifica pelo tipo ou pela extensão/nome do arquivo
+    const isPdf = file.type === 'pdf' || 
+                  file.extension?.toLowerCase() === '.pdf' ||
+                  (file.originalName || file.name || '').toLowerCase().endsWith('.pdf');
+    
+    if (isPdf) {
+      console.log('[FileViewer] Detectado PDF:', file.name, 'tipo:', file.type, 'extensão:', file.extension);
+      return <PDFViewer file={file} accessToken={accessToken} />;
+    }
+
     // Imagens
     if (file.type === 'png' || file.type === 'jpg') {
       const imageUrl = `https://drive.google.com/uc?export=view&id=${file.id}`;
@@ -96,7 +108,7 @@ export function FileViewer({ file, onClose, accessToken }: FileViewerProps) {
       );
     }
 
-    // PDFs e outros arquivos
+    // Outros arquivos - usa iframe do Google Drive
     return (
       <iframe
         src={embedUrl}
