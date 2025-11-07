@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Play, Pause, Volume2, VolumeX, Maximize, Minimize, Loader2, Gauge, MessageSquare, X, Edit2, Trash2 } from 'lucide-react';
+import { Play, Pause, Volume2, VolumeX, Maximize, Minimize, Loader2, Gauge, MessageSquare, X, Edit2, Trash2, SkipForward, SkipBack } from 'lucide-react';
 import { FileItem } from '../types';
 import { saveVideoProgress, getVideoProgress } from '../lib/videoProgress';
 import { createAnnotation, getVideoAnnotations, updateAnnotation, deleteAnnotation, VideoAnnotation } from '../lib/videoAnnotations';
@@ -39,6 +39,13 @@ export function VideoPlayer({ file, accessToken }: VideoPlayerProps) {
   const [annotationComment, setAnnotationComment] = useState('');
   const [editingAnnotation, setEditingAnnotation] = useState<VideoAnnotation | null>(null);
   const annotationFormRef = useRef<HTMLDivElement>(null);
+  
+  // Estados para double tap no mobile
+  const [showSkipIndicator, setShowSkipIndicator] = useState(false);
+  const [skipDirection, setSkipDirection] = useState<'forward' | 'backward' | null>(null);
+  const lastTapRef = useRef<number>(0);
+  const lastTapPositionRef = useRef<{ x: number; y: number } | null>(null);
+  const doubleTapTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Detecta se é dispositivo mobile
   const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || window.innerWidth < 768;
@@ -929,7 +936,97 @@ export function VideoPlayer({ file, accessToken }: VideoPlayerProps) {
           onPlay={() => setIsPlaying(true)}
           onPause={() => setIsPlaying(false)}
           onEnded={() => setIsPlaying(false)}
-          onClick={togglePlay}
+          onClick={(e) => {
+            // No desktop, usa clique normal para play/pause
+            if (!isMobile) {
+              togglePlay();
+            }
+          }}
+          onTouchStart={(e) => {
+            // Double tap para avançar/retroceder no mobile
+            if (!isMobile) return;
+            
+            const touch = e.touches[0];
+            const currentTime = Date.now();
+            const timeSinceLastTap = currentTime - lastTapRef.current;
+            const tapPosition = { x: touch.clientX, y: touch.clientY };
+            
+            // Verifica se é um double tap (dentro de 300ms e na mesma área)
+            if (timeSinceLastTap < 300 && lastTapPositionRef.current) {
+              const distance = Math.sqrt(
+                Math.pow(tapPosition.x - lastTapPositionRef.current.x, 2) +
+                Math.pow(tapPosition.y - lastTapPositionRef.current.y, 2)
+              );
+              
+              // Se o segundo toque está próximo do primeiro (dentro de 50px)
+              if (distance < 50) {
+                e.preventDefault();
+                e.stopPropagation();
+                
+                // Cancela o timeout do single tap
+                if (doubleTapTimeoutRef.current) {
+                  clearTimeout(doubleTapTimeoutRef.current);
+                  doubleTapTimeoutRef.current = null;
+                }
+                
+                const video = videoRef.current;
+                if (!video) return;
+                
+                // Determina a direção baseado na posição X do toque
+                const videoWidth = video.clientWidth || window.innerWidth;
+                const tapX = touch.clientX;
+                const isRightSide = tapX > videoWidth / 2;
+                
+                if (isRightSide) {
+                  // Avança 5 segundos
+                  video.currentTime = Math.min(video.currentTime + 5, video.duration);
+                  setCurrentTime(video.currentTime);
+                  setSkipDirection('forward');
+                } else {
+                  // Retrocede 5 segundos
+                  video.currentTime = Math.max(video.currentTime - 5, 0);
+                  setCurrentTime(video.currentTime);
+                  setSkipDirection('backward');
+                }
+                
+                // Mostra indicador visual
+                setShowSkipIndicator(true);
+                setTimeout(() => {
+                  setShowSkipIndicator(false);
+                  setSkipDirection(null);
+                }, 1000);
+                
+                // Reseta para evitar triple tap
+                lastTapRef.current = 0;
+                lastTapPositionRef.current = null;
+                return;
+              }
+            }
+            
+            // Salva informações do primeiro toque
+            lastTapRef.current = currentTime;
+            lastTapPositionRef.current = tapPosition;
+            
+            // Limpa timeout anterior se existir
+            if (doubleTapTimeoutRef.current) {
+              clearTimeout(doubleTapTimeoutRef.current);
+            }
+            
+            // Se não houver segundo toque em 300ms, executa single tap (play/pause)
+            doubleTapTimeoutRef.current = setTimeout(() => {
+              // Single tap - play/pause
+              togglePlay();
+              lastTapRef.current = 0;
+              lastTapPositionRef.current = null;
+              doubleTapTimeoutRef.current = null;
+            }, 300);
+          }}
+          onTouchEnd={(e) => {
+            // Previne que o evento de toque dispare o onClick
+            if (isMobile) {
+              e.preventDefault();
+            }
+          }}
           onLoadedMetadata={() => {
             console.log('[VideoPlayer] ✅ Metadados do vídeo carregados');
             setIsLoading(false);
@@ -995,6 +1092,27 @@ export function VideoPlayer({ file, accessToken }: VideoPlayerProps) {
       {isLoading && (
         <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-50">
           <Loader2 className="w-12 h-12 text-white animate-spin" />
+        </div>
+      )}
+
+      {/* Indicador de avanço/retrocesso no mobile */}
+      {showSkipIndicator && isMobile && (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-50">
+          <div className={`flex flex-col items-center justify-center bg-black/80 backdrop-blur-sm rounded-full p-6 sm:p-8 border-2 border-white/30 ${
+            skipDirection === 'forward' ? 'animate-pulse' : 'animate-pulse'
+          }`}>
+            {skipDirection === 'forward' ? (
+              <>
+                <SkipForward className="w-12 h-12 sm:w-16 sm:h-16 text-white" strokeWidth={2.5} />
+                <span className="text-white text-lg sm:text-xl font-bold mt-2">+5s</span>
+              </>
+            ) : (
+              <>
+                <SkipBack className="w-12 h-12 sm:w-16 sm:h-16 text-white" strokeWidth={2.5} />
+                <span className="text-white text-lg sm:text-xl font-bold mt-2">-5s</span>
+              </>
+            )}
+          </div>
         </div>
       )}
 

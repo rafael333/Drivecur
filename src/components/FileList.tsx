@@ -4,9 +4,9 @@ import { FileRow } from './FileRow';
 import { FilterBar } from './FilterBar';
 import { listDriveFiles, convertDriveFileToFileItem, isSharedFolder, downloadFile, downloadFolder } from '../lib/googleDrive';
 import { getFilesWithAnnotations, getFoldersWithAnnotatedVideos } from '../lib/videoAnnotations';
-import { ArrowLeft, Folder, Star, Users, MessageSquare, MoreHorizontal, MoreVertical, Palette, X, Pin, Download, FolderDown } from 'lucide-react';
+import { ArrowLeft, Folder, Star, Users, MessageSquare, MoreHorizontal, MoreVertical, Palette, X, Pin, Download, FolderDown, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { FileIcon } from './FileIcon';
-import { FOLDER_COLOR_OPTIONS, getFolderColor, setFolderColor, removeFolderColor, isFolderPinned, togglePinFolder, isFolderFavorite, toggleFavoriteFolder, getFavoritedFolders, FavoritedFolder, FILE_COLOR_OPTIONS, getFileTextColor, setFileTextColor, removeFileTextColor, isFileFavorite, toggleFavoriteFile } from '../lib/savedFolders';
+import { FOLDER_COLOR_OPTIONS, getFolderColor, setFolderColor, removeFolderColor, isFolderPinned, isFolderPinnedSync, togglePinFolder, isFolderFavorite, isFolderFavoriteSync, toggleFavoriteFolder, getFavoritedFolders, FavoritedFolder, FILE_COLOR_OPTIONS, getFileTextColor, setFileTextColor, removeFileTextColor, isFileFavorite, toggleFavoriteFile } from '../lib/savedFolders';
 
 interface FileListProps {
   selectedFile: FileItem | null;
@@ -27,8 +27,13 @@ interface FolderPath {
   name: string;
 }
 
+type SortType = 'name' | 'modifiedDate' | 'size';
+type SortDirection = 'asc' | 'desc';
+
 export function FileList({ selectedFile, setSelectedFile, searchQuery, setSearchQuery, accessToken, onViewFile, viewMode = 'my-drive', onDownloadStart, onDownloadProgress, onDownloadComplete, onDownloadError }: FileListProps) {
   const [filter, setFilter] = useState<FilterType>('all');
+  const [sortType, setSortType] = useState<SortType>('name');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
   const [files, setFiles] = useState<FileItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -79,7 +84,10 @@ export function FileList({ selectedFile, setSelectedFile, searchQuery, setSearch
           originalName: favFolder.name,
           type: 'folder',
           size: '',
+          createdDate: '',
+          createdTime: '',
           modifiedDate: '',
+          modifiedTime: '',
           owner: '',
           shared: false,
           starred: true,
@@ -305,7 +313,7 @@ export function FileList({ selectedFile, setSelectedFile, searchQuery, setSearch
 
         // Se o modo for 'starred' e estiver na raiz (sem currentFolderId), mostra apenas as pastas favoritadas
         if (viewMode === 'starred' && !currentFolderId) {
-          const favoritedFolders = getFavoritedFolders();
+          const favoritedFolders = await getFavoritedFolders();
           // Converte as pastas favoritadas para FileItem
           const favoriteFiles: FileItem[] = favoritedFolders.map((favFolder: FavoritedFolder) => ({
             id: favFolder.id,
@@ -313,7 +321,10 @@ export function FileList({ selectedFile, setSelectedFile, searchQuery, setSearch
             originalName: favFolder.name,
             type: 'folder',
             size: '',
+            createdDate: '',
+            createdTime: '',
             modifiedDate: '',
+            modifiedTime: '',
             owner: '',
             shared: false,
             starred: true,
@@ -466,6 +477,88 @@ export function FileList({ selectedFile, setSelectedFile, searchQuery, setSearch
     return matchesSearch && file.type === filter;
   });
 
+  // Função de ordenação
+  const sortedFiles = [...filteredFiles].sort((a, b) => {
+    let comparison = 0;
+
+    switch (sortType) {
+      case 'name':
+        const nameA = (a.originalName || a.name || '').toLowerCase();
+        const nameB = (b.originalName || b.name || '').toLowerCase();
+        comparison = nameA.localeCompare(nameB, 'pt-BR', { sensitivity: 'base' });
+        break;
+      
+      case 'modifiedDate':
+        // Converte as datas para comparação
+        // modifiedTime pode ser uma string ISO ou formatada, tenta parsear
+        let dateA = 0;
+        let dateB = 0;
+        
+        if (a.modifiedTime) {
+          const parsedA = new Date(a.modifiedTime);
+          dateA = isNaN(parsedA.getTime()) ? 0 : parsedA.getTime();
+        }
+        
+        if (b.modifiedTime) {
+          const parsedB = new Date(b.modifiedTime);
+          dateB = isNaN(parsedB.getTime()) ? 0 : parsedB.getTime();
+        }
+        
+        // Se não conseguiu parsear, tenta usar createdTime como fallback
+        if (dateA === 0 && a.createdTime) {
+          const parsedA = new Date(a.createdTime);
+          dateA = isNaN(parsedA.getTime()) ? 0 : parsedA.getTime();
+        }
+        
+        if (dateB === 0 && b.createdTime) {
+          const parsedB = new Date(b.createdTime);
+          dateB = isNaN(parsedB.getTime()) ? 0 : parsedB.getTime();
+        }
+        
+        comparison = dateA - dateB;
+        break;
+      
+      case 'size':
+        // Compara tamanhos em bytes, se disponível
+        // Pastas vão para o final (ou início, dependendo da direção)
+        const isFolderA = a.type === 'folder';
+        const isFolderB = b.type === 'folder';
+        
+        if (isFolderA && isFolderB) {
+          // Se ambos são pastas, ordena por nome
+          const nameA = (a.originalName || a.name || '').toLowerCase();
+          const nameB = (b.originalName || b.name || '').toLowerCase();
+          comparison = nameA.localeCompare(nameB, 'pt-BR', { sensitivity: 'base' });
+        } else if (isFolderA) {
+          // Pastas vão para o final quando ordenando por tamanho
+          comparison = 1;
+        } else if (isFolderB) {
+          // Pastas vão para o final quando ordenando por tamanho
+          comparison = -1;
+        } else {
+          // Ambos são arquivos, compara por tamanho
+          const sizeA = a.sizeBytes || 0;
+          const sizeB = b.sizeBytes || 0;
+          comparison = sizeA - sizeB;
+        }
+        break;
+    }
+
+    // Aplica a direção da ordenação
+    return sortDirection === 'asc' ? comparison : -comparison;
+  });
+
+  const handleSort = (type: SortType) => {
+    if (sortType === type) {
+      // Se já está ordenando por este tipo, inverte a direção
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      // Se é um novo tipo, define como ascendente
+      setSortType(type);
+      setSortDirection('asc');
+    }
+  };
+
   const getCurrentTitle = () => {
     // Se estiver dentro de uma pasta, mostra o nome da pasta atual
     if (folderPath.length > 0) {
@@ -604,6 +697,36 @@ export function FileList({ selectedFile, setSelectedFile, searchQuery, setSearch
 
       <FilterBar filter={filter} setFilter={setFilter} />
 
+      {/* Controles de ordenação - Mobile */}
+      <div className="lg:hidden px-3 sm:px-6 pb-3">
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-gray-400">Ordenar por:</span>
+          <select
+            value={sortType}
+            onChange={(e) => {
+              const newType = e.target.value as SortType;
+              handleSort(newType);
+            }}
+            className="bg-[#1a1a1a] border border-gray-800 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-600"
+          >
+            <option value="name">Nome</option>
+            <option value="modifiedDate">Data de modificação</option>
+            <option value="size">Tamanho</option>
+          </select>
+          <button
+            onClick={() => setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc')}
+            className="p-1.5 hover:bg-gray-800 rounded-lg transition-colors"
+            title={sortDirection === 'asc' ? 'Crescente' : 'Decrescente'}
+          >
+            {sortDirection === 'asc' ? (
+              <ArrowUp className="w-4 h-4 text-gray-400" />
+            ) : (
+              <ArrowDown className="w-4 h-4 text-gray-400" />
+            )}
+          </button>
+        </div>
+      </div>
+
       <div className="flex-1 overflow-auto">
         {/* Desktop: Tabela */}
         <div className="hidden lg:block px-3 sm:px-6">
@@ -611,10 +734,58 @@ export function FileList({ selectedFile, setSelectedFile, searchQuery, setSearch
             <table className="w-full">
               <thead>
                 <tr className="border-b border-gray-800 bg-[#141414]">
-                  <th className="text-left py-4 px-6 text-sm font-semibold text-gray-400">Nome</th>
+                  <th className="text-left py-4 px-6 text-sm font-semibold text-gray-400 group">
+                    <button
+                      onClick={() => handleSort('name')}
+                      className="flex items-center gap-2 hover:text-white transition-colors cursor-pointer"
+                    >
+                      Nome
+                      {sortType === 'name' ? (
+                        sortDirection === 'asc' ? (
+                          <ArrowUp className="w-4 h-4 text-blue-400" />
+                        ) : (
+                          <ArrowDown className="w-4 h-4 text-blue-400" />
+                        )
+                      ) : (
+                        <ArrowUpDown className="w-4 h-4 opacity-30 group-hover:opacity-100" />
+                      )}
+                    </button>
+                  </th>
                   <th className="text-left py-4 px-6 text-sm font-semibold text-gray-400">Proprietário</th>
-                  <th className="text-left py-4 px-6 text-sm font-semibold text-gray-400">Última modificação</th>
-                  <th className="text-left py-4 px-6 text-sm font-semibold text-gray-400">Tamanho</th>
+                  <th className="text-left py-4 px-6 text-sm font-semibold text-gray-400 group">
+                    <button
+                      onClick={() => handleSort('modifiedDate')}
+                      className="flex items-center gap-2 hover:text-white transition-colors cursor-pointer"
+                    >
+                      Última modificação
+                      {sortType === 'modifiedDate' ? (
+                        sortDirection === 'asc' ? (
+                          <ArrowUp className="w-4 h-4 text-blue-400" />
+                        ) : (
+                          <ArrowDown className="w-4 h-4 text-blue-400" />
+                        )
+                      ) : (
+                        <ArrowUpDown className="w-4 h-4 opacity-30 group-hover:opacity-100" />
+                      )}
+                    </button>
+                  </th>
+                  <th className="text-left py-4 px-6 text-sm font-semibold text-gray-400 group">
+                    <button
+                      onClick={() => handleSort('size')}
+                      className="flex items-center gap-2 hover:text-white transition-colors cursor-pointer"
+                    >
+                      Tamanho
+                      {sortType === 'size' ? (
+                        sortDirection === 'asc' ? (
+                          <ArrowUp className="w-4 h-4 text-blue-400" />
+                        ) : (
+                          <ArrowDown className="w-4 h-4 text-blue-400" />
+                        )
+                      ) : (
+                        <ArrowUpDown className="w-4 h-4 opacity-30 group-hover:opacity-100" />
+                      )}
+                    </button>
+                  </th>
                   <th className="w-12"></th>
                 </tr>
               </thead>
@@ -641,7 +812,7 @@ export function FileList({ selectedFile, setSelectedFile, searchQuery, setSearch
                     </td>
                   </tr>
                 ) : (
-                  filteredFiles.map((file, index) => {
+                  sortedFiles.map((file, index) => {
                     // Verifica se é vídeo e tem anotações
                     const isVideo = isVideoFile(file);
                     const hasAnnots = isVideo && filesWithAnnotations.has(file.id);
@@ -707,7 +878,7 @@ export function FileList({ selectedFile, setSelectedFile, searchQuery, setSearch
             </div>
           ) : (
             <div className="space-y-2">
-              {filteredFiles.map((file, index) => {
+              {sortedFiles.map((file, index) => {
                 const isVideo = isVideoFile(file);
                 const hasAnnots = isVideo && filesWithAnnotations.has(file.id);
                 const folderHasAnnotatedVideos = file.type === 'folder' && foldersWithAnnotatedVideos.has(file.id);
@@ -742,7 +913,6 @@ export function FileList({ selectedFile, setSelectedFile, searchQuery, setSearch
                       if (justClosedMenu === file.id && file.type === 'folder') {
                         e.stopPropagation();
                         e.preventDefault();
-                        e.stopImmediatePropagation();
                         return;
                       }
                       
@@ -750,7 +920,6 @@ export function FileList({ selectedFile, setSelectedFile, searchQuery, setSearch
                       if (isMenuOrPickerOpen || mobileMenuOpen === file.id || mobileColorPicker === file.id || justClosedPicker === file.id || (justClosedMenu === file.id && file.type === 'folder')) {
                         e.stopPropagation();
                         e.preventDefault();
-                        e.stopImmediatePropagation();
                         return;
                       }
                       
@@ -789,7 +958,6 @@ export function FileList({ selectedFile, setSelectedFile, searchQuery, setSearch
                       if (justClosedMenu === file.id || isMenuOrPickerOpen || mobileMenuOpen === file.id || mobileColorPicker === file.id || justClosedPicker === file.id || justClosedMenu === file.id) {
                         e.stopPropagation();
                         e.preventDefault();
-                        e.stopImmediatePropagation();
                         return;
                       }
                       
@@ -886,10 +1054,10 @@ export function FileList({ selectedFile, setSelectedFile, searchQuery, setSearch
                           </h3>
                           {/* Ícone de anotações ao lado do nome no mobile */}
                           {(hasAnnots || folderHasAnnotatedVideos) && (
-                            <MessageSquare 
-                              className="w-5 h-5 sm:w-4 sm:h-4 text-yellow-500 fill-yellow-500/40 sm:fill-yellow-500/20 flex-shrink-0" 
-                              title={file.type === 'folder' ? 'Contém vídeos com anotações' : 'Tem anotações'}
-                              style={{ 
+                            <div title={file.type === 'folder' ? 'Contém vídeos com anotações' : 'Tem anotações'}>
+                              <MessageSquare 
+                                className="w-5 h-5 sm:w-4 sm:h-4 text-yellow-500 fill-yellow-500/40 sm:fill-yellow-500/20 flex-shrink-0" 
+                                style={{ 
                                 display: 'block',
                                 minWidth: '20px',
                                 minHeight: '20px',
@@ -902,6 +1070,7 @@ export function FileList({ selectedFile, setSelectedFile, searchQuery, setSearch
                                 fill: 'rgba(234, 179, 8, 0.4)'
                               }}
                             />
+                            </div>
                           )}
                         </div>
                         <div className="flex items-center gap-2 text-xs text-gray-400 mt-1">
@@ -913,19 +1082,19 @@ export function FileList({ selectedFile, setSelectedFile, searchQuery, setSearch
                       <div className="flex items-center gap-0.5 sm:gap-1 flex-shrink-0 ml-1 sm:ml-2" style={{ overflow: 'visible', minWidth: '60px', flexBasis: 'auto' }}>
                         <div className="flex items-center gap-0.5 sm:gap-1" style={{ overflow: 'visible', width: '100%', justifyContent: 'flex-end' }}>
                           {file.starred && (
-                            <Star className="w-4 h-4 text-yellow-400 fill-yellow-400 flex-shrink-0" title="Favorito" />
+                            <Star className="w-4 h-4 text-yellow-400 fill-yellow-400 flex-shrink-0" />
                           )}
-                          {file.type === 'folder' && file.id && isFolderPinned(file.id) && (
-                            <Pin className="w-4 h-4 text-blue-400 fill-blue-400 flex-shrink-0" title="Fixada" />
+                          {file.type === 'folder' && file.id && isFolderPinnedSync(file.id) && (
+                            <Pin className="w-4 h-4 text-blue-400 fill-blue-400 flex-shrink-0" />
                           )}
-                          {file.type === 'folder' && file.id && isFolderFavorite(file.id) && (
-                            <Star className="w-4 h-4 text-yellow-400 fill-yellow-400 flex-shrink-0" title="Favoritada" />
+                          {file.type === 'folder' && file.id && isFolderFavoriteSync(file.id) && (
+                            <Star className="w-4 h-4 text-yellow-400 fill-yellow-400 flex-shrink-0" />
                           )}
                           {file.type !== 'folder' && file.id && isFileFavorite(file.id) && (
-                            <Star className="w-4 h-4 text-yellow-400 fill-yellow-400 flex-shrink-0" title="Favoritado" />
+                            <Star className="w-4 h-4 text-yellow-400 fill-yellow-400 flex-shrink-0" />
                           )}
                           {file.shared && (
-                            <Users className="w-4 h-4 text-blue-400 flex-shrink-0" title="Compartilhado" />
+                            <Users className="w-4 h-4 text-blue-400 flex-shrink-0" />
                           )}
                         </div>
                       </div>
@@ -1005,8 +1174,8 @@ export function FileList({ selectedFile, setSelectedFile, searchQuery, setSearch
                                   className="w-full px-4 py-3 text-left text-sm text-gray-300 hover:bg-gray-800 active:bg-gray-700 rounded-lg transition-colors flex items-center gap-3 touch-manipulation mb-2"
                                   style={{ pointerEvents: 'auto', WebkitTapHighlightColor: 'transparent' }}
                                 >
-                                  <Star className={`w-5 h-5 ${isFolderFavorite(file.id) ? 'text-yellow-400 fill-yellow-400' : 'text-gray-400'}`} />
-                                  <span className="flex-1">{isFolderFavorite(file.id) ? 'Remover dos favoritos' : 'Favoritar'}</span>
+                                  <Star className={`w-5 h-5 ${isFolderFavoriteSync(file.id) ? 'text-yellow-400 fill-yellow-400' : 'text-gray-400'}`} />
+                                  <span className="flex-1">{isFolderFavoriteSync(file.id) ? 'Remover dos favoritos' : 'Favoritar'}</span>
                                 </button>
                                 
                                 {/* Opção: Fixar/Desfixar */}
@@ -1057,8 +1226,8 @@ export function FileList({ selectedFile, setSelectedFile, searchQuery, setSearch
                                   className="w-full px-4 py-3 text-left text-sm text-gray-300 hover:bg-gray-800 active:bg-gray-700 rounded-lg transition-colors flex items-center gap-3 touch-manipulation mb-2"
                                   style={{ pointerEvents: 'auto', WebkitTapHighlightColor: 'transparent' }}
                                 >
-                                  <Pin className={`w-5 h-5 ${isFolderPinned(file.id) ? 'text-blue-400 fill-blue-400' : 'text-gray-400'}`} />
-                                  <span className="flex-1">{isFolderPinned(file.id) ? 'Desfixar' : 'Fixar'}</span>
+                                  <Pin className={`w-5 h-5 ${isFolderPinnedSync(file.id) ? 'text-blue-400 fill-blue-400' : 'text-gray-400'}`} />
+                                  <span className="flex-1">{isFolderPinnedSync(file.id) ? 'Desfixar' : 'Fixar'}</span>
                                 </button>
                                 
                                 {/* Opção: Mudar cor */}
