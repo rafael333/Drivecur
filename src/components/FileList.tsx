@@ -967,27 +967,27 @@ export function FileList({ selectedFile, setSelectedFile, searchQuery, setSearch
                         longPressTimerRef.current = null;
                       }
                       
-                      // Inicia timer para long press (600ms para dar tempo de clique simples funcionar)
+                      // Inicia timer para long press (2 segundos para abrir menu de opções)
                       // Salva a referência do arquivo para verificar depois
                       const fileId = file.id;
                       longPressTargetRef.current = fileId;
                       longPressTimerRef.current = setTimeout(() => {
                         // Verifica se ainda é o mesmo arquivo
                         if (longPressTargetRef.current === fileId && fileId) {
-                          // Abre o menu apenas se ainda estiver segurando
+                          // Abre o menu apenas se ainda estiver segurando por 2 segundos
                           setMobileMenuOpen(fileId);
                           setMobileColorPicker(null);
                           // Limpa a referência
                           longPressTargetRef.current = null;
                           touchStartTargetRef.current = null;
                         }
-                      }, 600); // Aumentado para 600ms para permitir que clique simples funcione primeiro
+                      }, 2000); // 2 segundos de pressão para abrir o menu
                     }}
                     onTouchEnd={(e) => {
-                      // Cancela o long press se o usuário soltar antes de 500ms
+                      // Cancela o long press se o usuário soltar antes de 2 segundos
                       // Mas só cancela se realmente for um toque rápido (não um long press completo)
                       if (mobileMenuOpen === file.id) {
-                        // Menu já abriu (long press completo), não cancela nada
+                        // Menu já abriu (long press completo de 2 segundos), não cancela nada
                         return;
                       }
                       
