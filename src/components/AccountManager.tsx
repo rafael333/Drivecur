@@ -423,25 +423,12 @@ export function AccountManager({ onClose, onAccountSwitch }: AccountManagerProps
                       }`}
                     >
                       <div className="flex items-center gap-4">
-                        {account.picture ? (
-                          <img
-                            src={account.picture}
-                            alt={account.name}
-                            className="w-12 h-12 rounded-full"
-                          />
-                        ) : (
-                          <div className="w-12 h-12 bg-gray-700 rounded-full flex items-center justify-center">
-                            <span className="text-lg font-medium text-gray-300">
-                              {account.name.charAt(0).toUpperCase()}
-                            </span>
-                          </div>
-                        )}
-
+                        {/* Foto, nome e email ocultados */}
+                        
                         <div className="flex-1 min-w-0">
-                          <h3 className="text-white font-medium truncate">{account.name}</h3>
-                          <p className="text-gray-400 text-sm truncate">{account.email}</p>
+                          {/* Nome e email ocultados */}
                           {account.isActive && (
-                            <span className="inline-flex items-center gap-1 mt-1 text-xs text-blue-400">
+                            <span className="inline-flex items-center gap-1 text-xs text-blue-400">
                               <Check className="w-3 h-3" />
                               Conta ativa
                             </span>

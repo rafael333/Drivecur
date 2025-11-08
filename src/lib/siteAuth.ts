@@ -6,6 +6,7 @@ export interface SiteUser {
   name?: string;
   uid?: string;
   displayName?: string;
+  photoURL?: string;
 }
 
 // Converte Firebase User para SiteUser
@@ -15,6 +16,7 @@ export function firebaseUserToSiteUser(firebaseUser: FirebaseUser): SiteUser {
     name: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || '',
     uid: firebaseUser.uid,
     displayName: firebaseUser.displayName || undefined,
+    photoURL: firebaseUser.photoURL || undefined,
   };
 }
 

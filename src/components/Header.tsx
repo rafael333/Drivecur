@@ -22,9 +22,10 @@ export function Header({ searchQuery, setSearchQuery, userInfo, siteUser, onLogo
   const [showAccountManager, setShowAccountManager] = useState(false);
   const searchModalInputRef = useRef<HTMLInputElement>(null);
   
-  const displayName = userInfo?.name || siteUser?.name || (siteUser?.email ? siteUser.email.split('@')[0] : null) || 'Usuário';
-  const displayEmail = userInfo?.email || siteUser?.email || '';
-  const displayPicture = userInfo?.picture || undefined;
+  // Prioriza informações do Firebase (siteUser), usa Google como fallback
+  const displayName = siteUser?.name || userInfo?.name || (siteUser?.email ? siteUser.email.split('@')[0] : null) || (userInfo?.email ? userInfo.email.split('@')[0] : null) || 'Usuário';
+  const displayEmail = siteUser?.email || userInfo?.email || '';
+  const displayPicture = siteUser?.photoURL || userInfo?.picture || undefined;
 
   useEffect(() => {
     if (showSearchModal && searchModalInputRef.current) {
@@ -94,7 +95,7 @@ export function Header({ searchQuery, setSearchQuery, userInfo, siteUser, onLogo
             e.stopPropagation();
             setShowUserSidebar(!showUserSidebar);
           }}
-          className="hidden sm:flex items-center gap-3 p-1 hover:bg-gray-800 active:bg-gray-700 rounded-lg transition-colors flex-shrink-0"
+          className="hidden sm:flex items-center gap-2 p-1 hover:bg-gray-800 active:bg-gray-700 rounded-lg transition-colors flex-shrink-0"
           aria-label="Menu do usuário"
         >
           {displayPicture ? (
@@ -110,12 +111,6 @@ export function Header({ searchQuery, setSearchQuery, userInfo, siteUser, onLogo
               </span>
             </div>
           )}
-          <div className="flex flex-col items-end flex-shrink-0">
-            <span className="text-sm font-medium text-white">{displayName}</span>
-            {displayEmail && (
-              <span className="text-xs text-gray-400">{displayEmail}</span>
-            )}
-          </div>
           <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform flex-shrink-0 ${showUserSidebar ? 'rotate-180' : ''}`} />
         </button>
       </header>
@@ -181,30 +176,8 @@ export function Header({ searchQuery, setSearchQuery, userInfo, siteUser, onLogo
             </div>
 
             <div className="flex-1 overflow-y-auto">
-              <div className="p-4 sm:p-6 border-b border-gray-800">
-                <div className="flex items-center gap-4">
-                  {displayPicture ? (
-                    <img
-                      src={displayPicture}
-                      alt={displayName}
-                      className="w-16 h-16 rounded-full"
-                    />
-                  ) : (
-                    <div className="w-16 h-16 bg-gray-700 rounded-full flex items-center justify-center">
-                      <span className="text-2xl font-medium text-gray-300">
-                        {displayName.charAt(0).toUpperCase()}
-                      </span>
-                    </div>
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <h3 className="text-base font-semibold text-white truncate">{displayName}</h3>
-                    {displayEmail && (
-                      <p className="text-sm text-gray-400 truncate mt-1">{displayEmail}</p>
-                    )}
-                  </div>
-                </div>
-              </div>
-
+              {/* Informações do usuário ocultadas */}
+              
               <div className="py-2">
                 <button
                   onClick={() => {

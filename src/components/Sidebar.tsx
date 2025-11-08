@@ -32,10 +32,10 @@ export function Sidebar({ viewMode, onViewModeChange, onFolderClick, accessToken
   const [folderMenuOpen, setFolderMenuOpen] = useState<string | null>(null);
   const sidebarRef = useRef<HTMLDivElement | null>(null);
   
-  // Prioriza informações do Google (mais completas), mas mostra do site como fallback
-  const displayName = userInfo?.name || siteUser?.name || (siteUser?.email ? siteUser.email.split('@')[0] : null) || 'Usuário';
-  const displayEmail = userInfo?.email || siteUser?.email || '';
-  const displayPicture = userInfo?.picture || undefined;
+  // Prioriza informações do Firebase (siteUser), usa Google como fallback
+  const displayName = siteUser?.name || userInfo?.name || (siteUser?.email ? siteUser.email.split('@')[0] : null) || (userInfo?.email ? userInfo.email.split('@')[0] : null) || 'Usuário';
+  const displayEmail = siteUser?.email || userInfo?.email || '';
+  const displayPicture = siteUser?.photoURL || userInfo?.picture || undefined;
 
   useEffect(() => {
     // Carrega pastas salvas (async - com Firebase)
@@ -445,7 +445,7 @@ export function Sidebar({ viewMode, onViewModeChange, onFolderClick, accessToken
               e.stopPropagation();
               setShowUserSidebar(!showUserSidebar);
             }}
-            className="w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors text-gray-400 hover:bg-gray-800/50 hover:text-white lg:hidden"
+            className="w-full flex items-center justify-center gap-3 px-4 py-3 rounded-lg transition-colors text-gray-400 hover:bg-gray-800/50 hover:text-white lg:hidden"
             aria-label="Menu do usuário"
           >
             {displayPicture ? (
@@ -462,7 +462,6 @@ export function Sidebar({ viewMode, onViewModeChange, onFolderClick, accessToken
                 </span>
               </div>
             )}
-            <span className="font-medium flex-1 text-left truncate">{displayName}</span>
             <ChevronDown className={`w-4 h-4 flex-shrink-0 transition-transform ${showUserSidebar ? 'rotate-180' : ''}`} />
           </button>
         </div>
@@ -509,31 +508,8 @@ export function Sidebar({ viewMode, onViewModeChange, onFolderClick, accessToken
             </div>
 
             <div className="flex-1 overflow-y-auto">
-              {/* Informações do usuário */}
-              <div className="p-4 sm:p-6 border-b border-gray-800">
-                <div className="flex items-center gap-4">
-                  {displayPicture ? (
-                    <img
-                      src={displayPicture}
-                      alt={displayName}
-                      className="w-16 h-16 rounded-full"
-                    />
-                  ) : (
-                    <div className="w-16 h-16 bg-gray-700 rounded-full flex items-center justify-center">
-                      <span className="text-2xl font-medium text-gray-300">
-                        {displayName.charAt(0).toUpperCase()}
-                      </span>
-                    </div>
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <h3 className="text-base font-semibold text-white truncate">{displayName}</h3>
-                    {displayEmail && (
-                      <p className="text-sm text-gray-400 truncate mt-1">{displayEmail}</p>
-                    )}
-                  </div>
-                </div>
-              </div>
-
+              {/* Informações do usuário ocultadas */}
+              
               {/* Menu de opções */}
               <div className="py-2">
                 <button
