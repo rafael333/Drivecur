@@ -96,19 +96,35 @@ export function VideoPlayer({ file, accessToken }: VideoPlayerProps) {
         }
 
         // Verifica o tipo de conteúdo
-        const contentType = response.headers.get('content-type');
+        let contentType = response.headers.get('content-type');
         console.log('[VideoPlayer] Content-Type:', contentType);
         
+        // Se não tiver Content-Type ou não for vídeo, tenta detectar pelo nome do arquivo
         if (!contentType || !contentType.startsWith('video/')) {
           console.warn('[VideoPlayer] ⚠️ Content-Type não é vídeo:', contentType);
+          
+          // Verifica se é arquivo .ts (MPEG Transport Stream)
+          const fileName = file.name || file.originalName || '';
+          if (fileName.toLowerCase().endsWith('.ts')) {
+            contentType = 'video/mp2t';
+            console.log('[VideoPlayer] Arquivo .ts detectado, usando Content-Type: video/mp2t');
+          }
         }
 
         // Cria blob URL
         // Nota: await response.blob() baixa o arquivo inteiro na memória
         // Infelizmente, isso é necessário porque a URL direta não funciona em mobile
         console.log('[VideoPlayer] Criando blob...');
-        const blob = await response.blob();
-        console.log('[VideoPlayer] ✅ Blob criado, tamanho:', blob.size, 'bytes', `(${(blob.size / 1024 / 1024).toFixed(2)} MB)`);
+        let blob = await response.blob();
+        
+        // Se o Content-Type foi detectado mas o blob não tem type, define manualmente
+        // Isso é importante para arquivos .ts que podem não ter o tipo MIME correto
+        if (contentType && contentType.startsWith('video/') && (!blob.type || blob.type === 'application/octet-stream')) {
+          blob = new Blob([blob], { type: contentType });
+          console.log('[VideoPlayer] ✅ Blob recriado com tipo manual:', contentType);
+        }
+        
+        console.log('[VideoPlayer] ✅ Blob criado, tamanho:', blob.size, 'bytes', `(${(blob.size / 1024 / 1024).toFixed(2)} MB)`, 'tipo:', blob.type || 'não especificado');
         
         if (blob.size === 0) {
           throw new Error('Vídeo vazio ou erro ao baixar');

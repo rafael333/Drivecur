@@ -92,6 +92,8 @@ const mimeTypeToExtension = (mimeType: string, fileName: string): string => {
     'video/x-matroska': '.mkv',
     'video/mpeg': '.mpeg',
     'video/x-flv': '.flv',
+    'video/mp2t': '.ts',
+    'video/MP2T': '.ts',
     // Áudios
     'audio/mpeg': '.mp3',
     'audio/mp4': '.m4a',
@@ -254,6 +256,46 @@ export async function isSharedFolder(
   }
 }
 
+// Lista os Shared Drives (drives compartilhados) aos quais o usuário tem acesso
+export async function listSharedDrives(
+  accessToken: string,
+  pageToken?: string
+): Promise<{ drives: any[]; nextPageToken?: string }> {
+  const params = new URLSearchParams({
+    pageSize: '100',
+  });
+
+  if (pageToken) {
+    params.append('pageToken', pageToken);
+  }
+
+  const response = await fetchWithAutoRefresh(
+    `https://www.googleapis.com/drive/v3/drives?${params.toString()}`,
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    },
+    () => accessToken
+  );
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ error: { message: 'Erro desconhecido' } }));
+    
+    if (response.status === 401) {
+      throw new Error('Token de autenticação inválido ou expirado. Por favor, faça login novamente.');
+    }
+    
+    throw new Error(errorData.error?.message || 'Erro ao buscar drives compartilhados');
+  }
+
+  const data = await response.json();
+  return {
+    drives: data.drives || [],
+    nextPageToken: data.nextPageToken,
+  };
+}
+
 // Busca arquivos do Google Drive
 export async function listDriveFiles(
   accessToken: string,
@@ -261,12 +303,32 @@ export async function listDriveFiles(
   pageToken?: string,
   parentFolderId?: string,
   sharedWithMe?: boolean,
-  isSharedFolderId?: boolean
+  isSharedFolderId?: boolean,
+  driveId?: string
 ): Promise<{ files: any[]; nextPageToken?: string }> {
   let query = 'trashed=false';
   
+  // Se estiver dentro de um Shared Drive
+  if (driveId) {
+    // Para Shared Drives, a query depende se há parentFolderId ou não
+    if (parentFolderId) {
+      // Dentro de uma pasta do Shared Drive
+      query = `'${parentFolderId}' in parents and trashed=false`;
+    } else {
+      // Na raiz do Shared Drive - busca arquivos sem parent (ou com parent no drive)
+      // Para a raiz de um Shared Drive, não filtra por parent
+      query = 'trashed=false';
+      // A API do Google Drive com corpora=drive e driveId já filtra para a raiz do drive
+    }
+    
+    // Adiciona busca se houver
+    if (searchQuery && searchQuery.trim()) {
+      const escapedQuery = searchQuery.trim().replace(/'/g, "\\'");
+      query += ` and (name contains '${escapedQuery}' or fullText contains '${escapedQuery}')`;
+    }
+  }
   // Se estiver dentro de uma pasta compartilhada (mesmo em "Meu Drive")
-  if (isSharedFolderId && parentFolderId) {
+  else if (isSharedFolderId && parentFolderId) {
     // Para pastas compartilhadas, busca apenas por parent - SEM filtro de owner
     // Isso permite ver todos os arquivos dentro da pasta compartilhada
     query = `'${parentFolderId}' in parents and trashed=false`;
@@ -356,6 +418,20 @@ export async function listDriveFiles(
     params.append('supportsAllDrives', 'true');
   }
 
+  // Se estiver dentro de um Shared Drive, adiciona o driveId
+  if (driveId) {
+    params.append('driveId', driveId);
+    params.append('includeItemsFromAllDrives', 'true');
+    params.append('supportsAllDrives', 'true');
+    params.append('corpora', 'drive');
+    // Para a raiz do Shared Drive (sem parentFolderId), não filtra por parents
+    // Para pastas dentro do Shared Drive (com parentFolderId), a query já filtra por parent
+    if (!parentFolderId) {
+      // Na raiz do Shared Drive, busca arquivos que estão na raiz (não têm parent ou parent está no drive)
+      // A API já faz isso automaticamente quando usa corpora=drive e driveId sem parent na query
+    }
+  }
+
   if (pageToken) {
     params.append('pageToken', pageToken);
   }
@@ -386,6 +462,49 @@ export async function listDriveFiles(
   return {
     files: data.files || [],
     nextPageToken: data.nextPageToken,
+  };
+}
+
+// Converte um Shared Drive para FileItem (tratado como pasta)
+export function convertSharedDriveToFileItem(drive: any): any {
+  return {
+    id: drive.id,
+    name: drive.name || 'Drive sem nome',
+    originalName: drive.name || 'Drive sem nome',
+    extension: '',
+    type: 'folder',
+    owner: drive.name || 'Drive Compartilhado',
+    ownerEmail: '',
+    ownerPhoto: undefined,
+    lastModifiedBy: '',
+    lastModifiedByEmail: '',
+    lastModifiedByPhoto: undefined,
+    createdDate: drive.createdTime ? formatDate(drive.createdTime) : '',
+    createdTime: drive.createdTime || '',
+    modifiedDate: drive.createdTime ? formatDate(drive.createdTime) : '',
+    modifiedTime: drive.createdTime ? formatDateTime(drive.createdTime) : '',
+    viewedByMeTime: undefined,
+    size: '-',
+    sizeBytes: undefined,
+    description: '',
+    webViewLink: `https://drive.google.com/drive/folders/${drive.id}`,
+    webContentLink: undefined,
+    thumbnailLink: undefined,
+    shared: true,
+    starred: false,
+    canDownload: false,
+    canCopy: false,
+    canEdit: false,
+    canShare: false,
+    canDelete: false,
+    imageWidth: undefined,
+    imageHeight: undefined,
+    videoWidth: undefined,
+    videoHeight: undefined,
+    videoDuration: undefined,
+    permissionCount: 0,
+    mimeType: 'application/vnd.google-apps.folder',
+    driveId: drive.id, // Adiciona o driveId para usar ao listar arquivos dentro do drive
   };
 }
 

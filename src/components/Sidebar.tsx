@@ -6,8 +6,8 @@ import { SiteUser } from '../lib/siteAuth';
 import { AccountManager } from './AccountManager';
 
 interface SidebarProps {
-  viewMode: 'my-drive' | 'shared-with-me' | 'recent' | 'starred' | 'trash';
-  onViewModeChange: (mode: 'my-drive' | 'shared-with-me' | 'recent' | 'starred' | 'trash') => void;
+  viewMode: 'my-drive' | 'shared-with-me' | 'shared-drives' | 'recent' | 'starred' | 'trash';
+  onViewModeChange: (mode: 'my-drive' | 'shared-with-me' | 'shared-drives' | 'recent' | 'starred' | 'trash') => void;
   onFolderClick?: (folderId: string) => void;
   accessToken?: string;
   isOpen?: boolean;
@@ -141,6 +141,7 @@ export function Sidebar({ viewMode, onViewModeChange, onFolderClick, accessToken
   const menuItems = [
     { icon: HardDrive, label: 'Meu Drive', mode: 'my-drive' as const },
     { icon: Users, label: 'Compartilhados comigo', mode: 'shared-with-me' as const },
+    { icon: HardDrive, label: 'Drives Compartilhados', mode: 'shared-drives' as const },
     { icon: Clock, label: 'Recentes', mode: 'recent' as const },
     { icon: Star, label: 'Favoritos', mode: 'starred' as const },
     { icon: Trash2, label: 'Lixeira', mode: 'trash' as const },

@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from 'react';
 import { FileItem, FilterType } from '../types';
 import { FileRow } from './FileRow';
 import { FilterBar } from './FilterBar';
-import { listDriveFiles, convertDriveFileToFileItem, isSharedFolder, downloadFile, downloadFolder } from '../lib/googleDrive';
+import { listDriveFiles, convertDriveFileToFileItem, isSharedFolder, downloadFile, downloadFolder, listSharedDrives, convertSharedDriveToFileItem } from '../lib/googleDrive';
 import { getFilesWithAnnotations, getFoldersWithAnnotatedVideos } from '../lib/videoAnnotations';
 import { ArrowLeft, Folder, Star, Users, MessageSquare, MoreHorizontal, MoreVertical, Palette, X, Pin, Download, FolderDown, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { FileIcon } from './FileIcon';
@@ -15,7 +15,7 @@ interface FileListProps {
   setSearchQuery?: (query: string) => void;
   accessToken: string;
   onViewFile?: (file: FileItem) => void;
-  viewMode?: 'my-drive' | 'shared-with-me' | 'recent' | 'starred' | 'trash';
+  viewMode?: 'my-drive' | 'shared-with-me' | 'shared-drives' | 'recent' | 'starred' | 'trash';
   onDownloadStart?: (fileName: string) => string;
   onDownloadProgress?: (id: string, progress: number) => void;
   onDownloadComplete?: (id: string) => void;
@@ -40,6 +40,7 @@ export function FileList({ selectedFile, setSelectedFile, searchQuery, setSearch
   const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
   const [folderPath, setFolderPath] = useState<FolderPath[]>([]);
   const [isCurrentFolderShared, setIsCurrentFolderShared] = useState(false);
+  const [currentDriveId, setCurrentDriveId] = useState<string | null>(null); // ID do Shared Drive atual
   const [filesWithAnnotations, setFilesWithAnnotations] = useState<Set<string>>(new Set());
   const [foldersWithAnnotatedVideos, setFoldersWithAnnotatedVideos] = useState<Set<string>>(new Set());
   const [showBreadcrumbMenu, setShowBreadcrumbMenu] = useState(false);
@@ -53,15 +54,28 @@ export function FileList({ selectedFile, setSelectedFile, searchQuery, setSearch
   const pinActionRef = useRef<{ folderId: string | null; timestamp: number }>({ folderId: null, timestamp: 0 });
   const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
   const longPressTargetRef = useRef<string | null>(null);
-  const previousViewModeRef = useRef<'my-drive' | 'shared-with-me' | 'recent' | 'starred' | 'trash'>(viewMode);
+  const previousViewModeRef = useRef<'my-drive' | 'shared-with-me' | 'shared-drives' | 'recent' | 'starred' | 'trash'>(viewMode);
   const touchStartTimeRef = useRef<number>(0);
   const touchStartTargetRef = useRef<string | null>(null);
 
   // Atualiza o ref quando o viewMode muda e garante que não reseta ao navegar
   useEffect(() => {
-    // Só atualiza o ref, não faz nenhuma ação que possa resetar a navegação
+    const previousMode = previousViewModeRef.current;
+    // Atualiza o ref
     previousViewModeRef.current = viewMode;
-  }, [viewMode]);
+    
+    // Se mudar de modo e não for shared-drives, reseta o currentDriveId
+    if (viewMode !== 'shared-drives' && currentDriveId) {
+      setCurrentDriveId(null);
+    }
+    // Se mudar para shared-drives de outro modo, reseta a navegação dentro de drives
+    if (viewMode === 'shared-drives' && previousMode !== 'shared-drives') {
+      setCurrentFolderId(null);
+      setFolderPath([]);
+      setCurrentDriveId(null);
+      setIsCurrentFolderShared(false);
+    }
+  }, [viewMode, currentDriveId]);
 
   // Escuta eventos para atualizar cores de pastas e favoritos
   useEffect(() => {
@@ -284,7 +298,7 @@ export function FileList({ selectedFile, setSelectedFile, searchQuery, setSearch
     
     // Verifica pela extensão
     if (file.extension) {
-      const videoExts = ['.mp4', '.avi', '.mov', '.wmv', '.webm', '.mkv', '.mpeg', '.flv', '.mpg', '.m4v', '.3gp'];
+      const videoExts = ['.mp4', '.avi', '.mov', '.wmv', '.webm', '.mkv', '.mpeg', '.flv', '.mpg', '.m4v', '.3gp', '.ts'];
       if (videoExts.some(ext => file.extension?.toLowerCase().includes(ext.toLowerCase()))) {
         return true;
       }
@@ -293,7 +307,7 @@ export function FileList({ selectedFile, setSelectedFile, searchQuery, setSearch
     // Verifica pelo nome
     if (file.originalName || file.name) {
       const name = (file.originalName || file.name).toLowerCase();
-      const videoExts = ['.mp4', '.avi', '.mov', '.wmv', '.webm', '.mkv', '.mpeg', '.flv', '.mpg', '.m4v', '.3gp'];
+      const videoExts = ['.mp4', '.avi', '.mov', '.wmv', '.webm', '.mkv', '.mpeg', '.flv', '.mpg', '.m4v', '.3gp', '.ts'];
       if (videoExts.some(ext => name.endsWith(ext))) {
         return true;
       }
@@ -343,6 +357,15 @@ export function FileList({ selectedFile, setSelectedFile, searchQuery, setSearch
           return;
         }
 
+        // Se o modo for 'shared-drives' e estiver na raiz (sem currentFolderId e sem currentDriveId), lista os Shared Drives
+        if (viewMode === 'shared-drives' && !currentFolderId && !currentDriveId) {
+          const sharedDrivesResult = await listSharedDrives(accessToken);
+          const sharedDrivesFiles = (sharedDrivesResult.drives || []).map(convertSharedDriveToFileItem);
+          setFiles(sharedDrivesFiles);
+          setLoading(false);
+          return;
+        }
+
         // Se estiver dentro de uma pasta (mesmo no modo starred), busca os arquivos do Google Drive
         // Mas precisa ter accessToken
         if (!accessToken && viewMode === 'starred' && currentFolderId) {
@@ -353,6 +376,10 @@ export function FileList({ selectedFile, setSelectedFile, searchQuery, setSearch
         }
 
         const sharedWithMe = viewMode === 'shared-with-me';
+        const isSharedDrivesMode = viewMode === 'shared-drives';
+        
+        // Se estiver dentro de um Shared Drive, sempre usa o driveId
+        const driveIdToUse = currentDriveId ? currentDriveId : undefined;
         
         const response = await listDriveFiles(
           accessToken, 
@@ -360,7 +387,8 @@ export function FileList({ selectedFile, setSelectedFile, searchQuery, setSearch
           undefined, 
           currentFolderId || undefined,
           sharedWithMe,
-          isCurrentFolderShared // Indica se a pasta atual é compartilhada
+          isCurrentFolderShared || (isSharedDrivesMode && currentDriveId !== null), // Indica se a pasta atual é compartilhada ou está em um Shared Drive
+          driveIdToUse // ID do Shared Drive, se estiver dentro de um
         );
         const mappedFiles = (response.files || []).map(convertDriveFileToFileItem);
         
@@ -384,10 +412,21 @@ export function FileList({ selectedFile, setSelectedFile, searchQuery, setSearch
       setFiles([]);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accessToken, searchQuery, currentFolderId, viewMode, isCurrentFolderShared]);
+  }, [accessToken, searchQuery, currentFolderId, viewMode, isCurrentFolderShared, currentDriveId]);
 
   const handleFolderOpen = async (folder: FileItem) => {
     if (folder.type === 'folder') {
+      // Se estiver no modo 'shared-drives' e estiver abrindo um Shared Drive na raiz
+      if (viewMode === 'shared-drives' && !currentFolderId && folder.driveId) {
+        // Entra no Shared Drive
+        setCurrentDriveId(folder.driveId);
+        setCurrentFolderId(null); // Começa na raiz do Shared Drive
+        setFolderPath([{ id: folder.id, name: folder.name }]);
+        setSelectedFile(null);
+        setIsCurrentFolderShared(true);
+        return;
+      }
+      
       // Se estiver no modo 'starred', sai do modo favoritos ao entrar em uma pasta
       if (viewMode === 'starred') {
         // Não permite navegação dentro de favoritos, volta para 'my-drive'
@@ -399,6 +438,12 @@ export function FileList({ selectedFile, setSelectedFile, searchQuery, setSearch
       setCurrentFolderId(folder.id);
       setFolderPath([...folderPath, { id: folder.id, name: folder.name }]);
       setSelectedFile(null);
+      
+      // Se estiver dentro de um Shared Drive, mantém o driveId ao navegar
+      if (currentDriveId) {
+        // Mantém o driveId ao navegar dentro de um Shared Drive
+        // Não precisa fazer nada, currentDriveId já está definido
+      }
       
       // Verifica se a nova pasta é compartilhada usando as informações do arquivo
       // Se o arquivo já tem informações de shared ou capabilities, usa isso
@@ -424,11 +469,21 @@ export function FileList({ selectedFile, setSelectedFile, searchQuery, setSearch
         setFolderPath(newPath);
         newFolderId = newPath[newPath.length - 1].id;
         setCurrentFolderId(newFolderId);
+        // Se estava na raiz do Shared Drive e voltar, mantém o driveId
+        if (viewMode === 'shared-drives' && newFolderId === null && currentDriveId) {
+          // Volta para a lista de Shared Drives
+          setCurrentDriveId(null);
+          setIsCurrentFolderShared(false);
+        }
       } else if (folderPath.length === 1) {
-        // Se há apenas uma pasta, volta para a raiz (mas não reseta o viewMode)
+        // Se há apenas uma pasta, volta para a raiz
         newFolderId = null;
         setCurrentFolderId(null);
         setFolderPath([]);
+        // Se estiver no modo shared-drives, reseta o driveId
+        if (viewMode === 'shared-drives') {
+          setCurrentDriveId(null);
+        }
         setIsCurrentFolderShared(false);
       }
       // Se folderPath.length === 0, não faz nada (botão não aparece)

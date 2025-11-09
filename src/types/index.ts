@@ -35,6 +35,7 @@ export interface FileItem {
   videoDuration?: string;
   permissionCount?: number;
   mimeType?: string;
+  driveId?: string; // ID do Shared Drive, se este item estiver dentro de um
 }
 
 export type FilterType = 'all' | 'pdf' | 'video' | 'image' | 'folder';

@@ -55,7 +55,7 @@ function App() {
   const [siteUser, setSiteUser] = useState<SiteUser | null>(null);
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [googleUserInfo, setGoogleUserInfo] = useState<any>(null);
-  const [viewMode, setViewMode] = useState<'my-drive' | 'shared-with-me' | 'recent' | 'starred' | 'trash'>('my-drive');
+  const [viewMode, setViewMode] = useState<'my-drive' | 'shared-with-me' | 'shared-drives' | 'recent' | 'starred' | 'trash'>('my-drive');
   
   // Estados para verificar inicialização
   const [authInitialized, setAuthInitialized] = useState(false);
