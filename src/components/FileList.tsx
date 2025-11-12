@@ -32,6 +32,7 @@ type SortDirection = 'asc' | 'desc';
 
 export function FileList({ selectedFile, setSelectedFile, searchQuery, setSearchQuery, accessToken, onViewFile, viewMode = 'my-drive', onDownloadStart, onDownloadProgress, onDownloadComplete, onDownloadError }: FileListProps) {
   const [filter, setFilter] = useState<FilterType>('all');
+  // Ordenação padrão: por nome, ascendente, pastas primeiro
   const [sortType, setSortType] = useState<SortType>('name');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
   const [files, setFiles] = useState<FileItem[]>([]);
@@ -298,7 +299,7 @@ export function FileList({ selectedFile, setSelectedFile, searchQuery, setSearch
     
     // Verifica pela extensão
     if (file.extension) {
-      const videoExts = ['.mp4', '.avi', '.mov', '.wmv', '.webm', '.mkv', '.mpeg', '.flv', '.mpg', '.m4v', '.3gp', '.ts'];
+      const videoExts = ['.mp4', '.avi', '.mov', '.wmv', '.webm', '.mkv', '.mpeg', '.flv', '.mpg', '.m4v', '.3gp', '.ts', '.m2ts', '.mts'];
       if (videoExts.some(ext => file.extension?.toLowerCase().includes(ext.toLowerCase()))) {
         return true;
       }
@@ -307,7 +308,7 @@ export function FileList({ selectedFile, setSelectedFile, searchQuery, setSearch
     // Verifica pelo nome
     if (file.originalName || file.name) {
       const name = (file.originalName || file.name).toLowerCase();
-      const videoExts = ['.mp4', '.avi', '.mov', '.wmv', '.webm', '.mkv', '.mpeg', '.flv', '.mpg', '.m4v', '.3gp', '.ts'];
+      const videoExts = ['.mp4', '.avi', '.mov', '.wmv', '.webm', '.mkv', '.mpeg', '.flv', '.mpg', '.m4v', '.3gp', '.ts', '.m2ts', '.mts'];
       if (videoExts.some(ext => name.endsWith(ext))) {
         return true;
       }
@@ -359,8 +360,21 @@ export function FileList({ selectedFile, setSelectedFile, searchQuery, setSearch
 
         // Se o modo for 'shared-drives' e estiver na raiz (sem currentFolderId e sem currentDriveId), lista os Shared Drives
         if (viewMode === 'shared-drives' && !currentFolderId && !currentDriveId) {
+          console.log('[FileList] Listando Shared Drives...');
           const sharedDrivesResult = await listSharedDrives(accessToken);
-          const sharedDrivesFiles = (sharedDrivesResult.drives || []).map(convertSharedDriveToFileItem);
+          console.log('[FileList] Shared Drives retornados:', sharedDrivesResult.drives?.length || 0);
+          
+          const sharedDrivesFiles = (sharedDrivesResult.drives || []).map((drive: any) => {
+            const converted = convertSharedDriveToFileItem(drive);
+            console.log('[FileList] Shared Drive convertido:', {
+              id: converted.id,
+              name: converted.name,
+              driveId: converted.driveId,
+              isSame: converted.id === converted.driveId,
+            });
+            return converted;
+          });
+          
           setFiles(sharedDrivesFiles);
           setLoading(false);
           return;
@@ -381,20 +395,78 @@ export function FileList({ selectedFile, setSelectedFile, searchQuery, setSearch
         // Se estiver dentro de um Shared Drive, sempre usa o driveId
         const driveIdToUse = currentDriveId ? currentDriveId : undefined;
         
+        // Determina se está em um Shared Drive ou pasta compartilhada
+        const isInSharedDrive = !!currentDriveId || isSharedDrivesMode;
+        const isSharedFolder = isCurrentFolderShared || isInSharedDrive;
+        
+        console.log('[FileList] Buscando arquivos:', {
+          viewMode,
+          currentFolderId,
+          currentDriveId: driveIdToUse,
+          isSharedFolder,
+          isInSharedDrive,
+        });
+        
         const response = await listDriveFiles(
           accessToken, 
           searchQuery, 
           undefined, 
           currentFolderId || undefined,
           sharedWithMe,
-          isCurrentFolderShared || (isSharedDrivesMode && currentDriveId !== null), // Indica se a pasta atual é compartilhada ou está em um Shared Drive
+          isSharedFolder, // Indica se a pasta atual é compartilhada ou está em um Shared Drive
           driveIdToUse // ID do Shared Drive, se estiver dentro de um
         );
-        const mappedFiles = (response.files || []).map(convertDriveFileToFileItem);
         
+        console.log('[FileList] Arquivos recebidos:', response.files?.length || 0);
+        
+        // Converte arquivos e adiciona driveId se estiver dentro de um Shared Drive
+        // IMPORTANTE: Sempre passa o driveId para garantir que arquivos dentro de Shared Drives tenham o driveId
+        // Remove duplicatas baseado no ID do arquivo
+        const seenIds = new Set<string>();
+        const mappedFiles = (response.files || [])
+          .filter(file => {
+            // Remove arquivos duplicados
+            if (seenIds.has(file.id)) {
+              console.warn('[FileList] Arquivo duplicado ignorado:', file.id, file.name);
+              return false;
+            }
+            seenIds.add(file.id);
+            return true;
+          })
+          .map(file => {
+            const converted = convertDriveFileToFileItem(file, driveIdToUse);
+            // Garante que pastas dentro de Shared Drives também tenham driveId
+            if (driveIdToUse && converted.type === 'folder' && !converted.driveId) {
+              converted.driveId = driveIdToUse;
+              console.log('[FileList] Adicionando driveId à pasta convertida:', converted.name);
+            }
+            // Garante que arquivos dentro de Shared Drives também tenham driveId
+            if (driveIdToUse && !converted.driveId) {
+              converted.driveId = driveIdToUse;
+            }
+            return converted;
+          });
+        
+        console.log('[FileList] Arquivos mapeados (após remover duplicatas):', mappedFiles.length);
         setFiles(mappedFiles);
+        
+        // Log para debug
+        if (mappedFiles.length === 0 && driveIdToUse) {
+          console.warn('[FileList] Nenhum arquivo encontrado no Shared Drive:', {
+            driveId: driveIdToUse,
+            parentFolderId: currentFolderId,
+            viewMode,
+          });
+        }
       } catch (err: any) {
-        console.error('Erro ao buscar arquivos:', err);
+        console.error('[FileList] Erro ao buscar arquivos:', err);
+        console.error('[FileList] Detalhes do erro:', {
+          message: err.message,
+          viewMode,
+          currentFolderId,
+          currentDriveId: driveIdToUse,
+          isSharedFolder,
+        });
         setError(err.message || 'Erro ao carregar arquivos do Google Drive');
         setFiles([]);
       } finally {
@@ -419,19 +491,59 @@ export function FileList({ selectedFile, setSelectedFile, searchQuery, setSearch
       // Se estiver no modo 'shared-drives' e estiver abrindo um Shared Drive na raiz
       if (viewMode === 'shared-drives' && !currentFolderId && folder.driveId) {
         // Entra no Shared Drive
-        setCurrentDriveId(folder.driveId);
-        setCurrentFolderId(null); // Começa na raiz do Shared Drive
-        setFolderPath([{ id: folder.id, name: folder.name }]);
+        // IMPORTANTE: folder.driveId deve ser o ID do próprio Shared Drive (não uma pasta dentro dele)
+        // Se folder.id === folder.driveId, então é um Shared Drive raiz
+        // Se folder.id !== folder.driveId, então é uma pasta dentro de um Shared Drive
+        const isRootSharedDrive = folder.id === folder.driveId;
+        
+        console.log('[FileList] Entrando no Shared Drive:', folder.name, {
+          folderId: folder.id,
+          driveId: folder.driveId,
+          isRootSharedDrive,
+        });
+        
+        if (isRootSharedDrive) {
+          // É um Shared Drive raiz - usa folder.id como driveId
+          setCurrentDriveId(folder.id);
+          setCurrentFolderId(null); // Começa na raiz do Shared Drive
+          setFolderPath([{ id: folder.id, name: folder.name }]);
+        } else {
+          // É uma pasta dentro de um Shared Drive - usa folder.driveId e folder.id como pasta
+          setCurrentDriveId(folder.driveId);
+          setCurrentFolderId(folder.id); // Entra na pasta específica
+          setFolderPath([{ id: folder.id, name: folder.name }]);
+        }
+        
         setSelectedFile(null);
         setIsCurrentFolderShared(true);
         return;
       }
       
+      // CORREÇÃO: Preserva driveId ao navegar em pastas dentro de Shared Drives
+      // Se estiver dentro de um Shared Drive (currentDriveId existe), sempre mantém o driveId
+      const driveIdToPreserve = folder.driveId || currentDriveId;
+      
+      if (driveIdToPreserve) {
+        // Se a pasta não tem driveId mas estamos em um Shared Drive, adiciona o driveId
+        if (!folder.driveId && currentDriveId) {
+          folder.driveId = currentDriveId;
+          console.log('[FileList] Adicionando driveId à pasta:', folder.name, 'driveId:', currentDriveId);
+        }
+        
+        // Mantém o driveId ao navegar
+        if (driveIdToPreserve !== currentDriveId) {
+          setCurrentDriveId(driveIdToPreserve);
+          console.log('[FileList] Atualizando driveId para:', driveIdToPreserve);
+        }
+        
+        // Sempre marca como Shared Drive quando dentro de um
+        setIsCurrentFolderShared(true);
+        console.log('[FileList] Navegando dentro de Shared Drive, driveId:', driveIdToPreserve);
+      }
+      
       // Se estiver no modo 'starred', sai do modo favoritos ao entrar em uma pasta
       if (viewMode === 'starred') {
-        // Não permite navegação dentro de favoritos, volta para 'my-drive'
-        // ou mantém o modo mas permite navegação
-        // Por enquanto, vamos permitir navegação mantendo o modo
+        // Permite navegação mantendo o modo
       }
       
       // Permite navegar dentro de pastas compartilhadas também
@@ -439,27 +551,25 @@ export function FileList({ selectedFile, setSelectedFile, searchQuery, setSearch
       setFolderPath([...folderPath, { id: folder.id, name: folder.name }]);
       setSelectedFile(null);
       
-      // Se estiver dentro de um Shared Drive, mantém o driveId ao navegar
-      if (currentDriveId) {
-        // Mantém o driveId ao navegar dentro de um Shared Drive
-        // Não precisa fazer nada, currentDriveId já está definido
-      }
-      
       // Verifica se a nova pasta é compartilhada usando as informações do arquivo
       // Se o arquivo já tem informações de shared ou capabilities, usa isso
-      if (folder.shared === true || (folder.canDelete === false || folder.canShare === false)) {
-        setIsCurrentFolderShared(true);
-      } else if (accessToken) {
-        // Se não tem informações suficientes, verifica via API
-        isSharedFolder(accessToken, folder.id)
-          .then(setIsCurrentFolderShared)
-          .catch(() => setIsCurrentFolderShared(false));
+      if (!driveIdToPreserve) {
+        // Só verifica se não estiver em um Shared Drive
+        if (folder.shared === true || (folder.canDelete === false || folder.canShare === false)) {
+          setIsCurrentFolderShared(true);
+        } else if (accessToken) {
+          // Se não tem informações suficientes, verifica via API
+          isSharedFolder(accessToken, folder.id)
+            .then(setIsCurrentFolderShared)
+            .catch(() => setIsCurrentFolderShared(false));
+        }
       }
     }
   };
 
   const handleFolderBack = async (index?: number) => {
     let newFolderId: string | null = null;
+    const wasInSharedDrive = !!currentDriveId;
     
     if (index === undefined) {
       // Voltar para a pasta anterior no caminho
@@ -469,22 +579,38 @@ export function FileList({ selectedFile, setSelectedFile, searchQuery, setSearch
         setFolderPath(newPath);
         newFolderId = newPath[newPath.length - 1].id;
         setCurrentFolderId(newFolderId);
-        // Se estava na raiz do Shared Drive e voltar, mantém o driveId
+        
+        // IMPORTANTE: Se estiver dentro de um Shared Drive, mantém o driveId ao voltar
+        // Só remove o driveId se voltar para fora do Shared Drive (raiz do modo shared-drives)
         if (viewMode === 'shared-drives' && newFolderId === null && currentDriveId) {
-          // Volta para a lista de Shared Drives
+          // Volta para a lista de Shared Drives (fora do drive)
+          console.log('[FileList] Voltando para lista de Shared Drives, removendo driveId');
           setCurrentDriveId(null);
           setIsCurrentFolderShared(false);
+        } else if (currentDriveId) {
+          // Mantém o driveId ao voltar dentro de um Shared Drive
+          console.log('[FileList] Voltando dentro de Shared Drive, mantendo driveId:', currentDriveId);
+          setIsCurrentFolderShared(true);
         }
       } else if (folderPath.length === 1) {
         // Se há apenas uma pasta, volta para a raiz
         newFolderId = null;
         setCurrentFolderId(null);
         setFolderPath([]);
-        // Se estiver no modo shared-drives, reseta o driveId
+        
+        // Se estiver no modo shared-drives, reseta o driveId apenas se sair do drive
         if (viewMode === 'shared-drives') {
+          console.log('[FileList] Voltando para lista de Shared Drives');
           setCurrentDriveId(null);
+          setIsCurrentFolderShared(false);
+        } else if (currentDriveId) {
+          // Se não estiver no modo shared-drives mas tem driveId, mantém
+          // (pode estar em um Shared Drive acessado de outra forma)
+          console.log('[FileList] Mantendo driveId ao voltar:', currentDriveId);
+          setIsCurrentFolderShared(true);
+        } else {
+          setIsCurrentFolderShared(false);
         }
-        setIsCurrentFolderShared(false);
       }
       // Se folderPath.length === 0, não faz nada (botão não aparece)
     } else {
@@ -495,24 +621,46 @@ export function FileList({ selectedFile, setSelectedFile, searchQuery, setSearch
         // Volta para a raiz
         newFolderId = null;
         setCurrentFolderId(null);
-        setIsCurrentFolderShared(false);
+        
+        // Se estava em um Shared Drive e voltar para raiz do modo shared-drives, remove driveId
+        if (viewMode === 'shared-drives' && wasInSharedDrive) {
+          console.log('[FileList] Voltando para lista de Shared Drives via breadcrumb');
+          setCurrentDriveId(null);
+          setIsCurrentFolderShared(false);
+        } else if (wasInSharedDrive) {
+          // Se estava em Shared Drive mas não está no modo shared-drives, mantém
+          console.log('[FileList] Mantendo driveId ao voltar via breadcrumb:', currentDriveId);
+          setIsCurrentFolderShared(true);
+        } else {
+          setIsCurrentFolderShared(false);
+        }
       } else {
         // Volta para uma pasta específica no caminho
         newFolderId = newPath[newPath.length - 1].id;
         setCurrentFolderId(newFolderId);
+        
+        // Se estava em um Shared Drive, mantém o driveId
+        if (wasInSharedDrive && currentDriveId) {
+          console.log('[FileList] Voltando para pasta dentro de Shared Drive, mantendo driveId:', currentDriveId);
+          setIsCurrentFolderShared(true);
+        }
       }
     }
     
     // Limpa o arquivo selecionado
     setSelectedFile(null);
     
-    // Verifica se a pasta de destino é compartilhada (apenas se não for raiz)
-    if (newFolderId && accessToken) {
+    // Verifica se a pasta de destino é compartilhada (apenas se não for raiz e não estiver em Shared Drive)
+    if (newFolderId && accessToken && !currentDriveId) {
       isSharedFolder(accessToken, newFolderId)
         .then(setIsCurrentFolderShared)
-        .catch(() => setIsCurrentFolderShared(false));
-    } else if (!newFolderId && folderPath.length === 0) {
-      // Se voltou para a raiz, garante que não é compartilhada
+        .catch(() => {
+          if (!currentDriveId) {
+            setIsCurrentFolderShared(false);
+          }
+        });
+    } else if (!newFolderId && folderPath.length === 0 && !currentDriveId) {
+      // Se voltou para a raiz e não está em Shared Drive, garante que não é compartilhada
       setIsCurrentFolderShared(false);
     }
   };
@@ -533,7 +681,21 @@ export function FileList({ selectedFile, setSelectedFile, searchQuery, setSearch
   });
 
   // Função de ordenação
+  // SEMPRE mostra pastas primeiro, depois arquivos
+  // Dentro de cada grupo (pastas/arquivos), ordena pelo critério selecionado
   const sortedFiles = [...filteredFiles].sort((a, b) => {
+    const isFolderA = a.type === 'folder';
+    const isFolderB = b.type === 'folder';
+    
+    // PRIMEIRO: Separa pastas de arquivos - pastas sempre primeiro
+    if (isFolderA && !isFolderB) {
+      return -1; // pasta vem antes de arquivo
+    }
+    if (!isFolderA && isFolderB) {
+      return 1; // arquivo vem depois de pasta
+    }
+    
+    // SEGUNDO: Se ambos são do mesmo tipo (ambos pastas OU ambos arquivos), ordena pelo critério
     let comparison = 0;
 
     switch (sortType) {
@@ -574,24 +736,13 @@ export function FileList({ selectedFile, setSelectedFile, searchQuery, setSearch
         break;
       
       case 'size':
-        // Compara tamanhos em bytes, se disponível
-        // Pastas vão para o final (ou início, dependendo da direção)
-        const isFolderA = a.type === 'folder';
-        const isFolderB = b.type === 'folder';
-        
         if (isFolderA && isFolderB) {
-          // Se ambos são pastas, ordena por nome
+          // Se ambos são pastas, ordena por nome quando ordenando por tamanho
           const nameA = (a.originalName || a.name || '').toLowerCase();
           const nameB = (b.originalName || b.name || '').toLowerCase();
           comparison = nameA.localeCompare(nameB, 'pt-BR', { sensitivity: 'base' });
-        } else if (isFolderA) {
-          // Pastas vão para o final quando ordenando por tamanho
-          comparison = 1;
-        } else if (isFolderB) {
-          // Pastas vão para o final quando ordenando por tamanho
-          comparison = -1;
         } else {
-          // Ambos são arquivos, compara por tamanho
+          // Ambos são arquivos (já separamos pastas acima), compara por tamanho
           const sizeA = a.sizeBytes || 0;
           const sizeB = b.sizeBytes || 0;
           comparison = sizeA - sizeB;

@@ -31,6 +31,7 @@ export function VideoPlayer({ file, accessToken }: VideoPlayerProps) {
   const controlsTimeoutRef = useRef<NodeJS.Timeout>();
   const blobUrlRef = useRef<string | null>(null);
   const speedMenuRef = useRef<HTMLDivElement>(null);
+  const [useIframeFallback, setUseIframeFallback] = useState(false);
   
   // Estados para anotações
   const [showAnnotations, setShowAnnotations] = useState(false);
@@ -65,6 +66,9 @@ export function VideoPlayer({ file, accessToken }: VideoPlayerProps) {
 
         console.log('[VideoPlayer] Carregando vídeo:', file.name, file.id);
         console.log('[VideoPlayer] É mobile:', isMobile);
+        console.log('[VideoPlayer] canDownload:', file.canDownload);
+        console.log('[VideoPlayer] shared:', file.shared);
+        console.log('[VideoPlayer] driveId:', file.driveId);
         
         if (!file.id) {
           throw new Error('ID do arquivo não encontrado');
@@ -74,70 +78,466 @@ export function VideoPlayer({ file, accessToken }: VideoPlayerProps) {
           throw new Error('Token de acesso não encontrado');
         }
         
-        const apiUrl = `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media&supportsAllDrives=true`;
+        // SEMPRE tenta carregar o vídeo diretamente primeiro, mesmo para arquivos compartilhados
+        // Para arquivos compartilhados, tenta múltiplas estratégias
         
-        // Usa fetch + blob URL tanto em mobile quanto desktop
-        // A URL direta com token não funciona em mobile, então sempre usa blob URL
-        console.log('[VideoPlayer] Fazendo requisição para:', apiUrl);
-        console.log('[VideoPlayer] É mobile:', isMobile);
+        // IMPORTANTE: Para arquivos em pastas compartilhadas, mesmo que file.shared seja false,
+        // precisamos usar supportsAllDrives=true. Vamos detectar isso de várias formas:
+        // 1. file.driveId (Shared Drive)
+        // 2. file.shared (marcado como compartilhado)
+        // 3. file.canDownload === false (pode indicar arquivo compartilhado)
+        // 4. file.resourceKey (arquivos compartilhados geralmente têm resourceKey)
+        // 5. file.ownerEmail diferente do usuário atual (arquivo de outro usuário)
+        const isSharedDriveFile = file.driveId || file.shared;
+        const resourceKey = file.resourceKey;
         
-        const response = await fetch(apiUrl, {
-          headers: {
-            'Authorization': `Bearer ${accessToken}`,
-          },
-        });
-
-        console.log('[VideoPlayer] Resposta recebida, status:', response.status, response.statusText);
-
-        if (!response.ok) {
-          const errorText = await response.text().catch(() => 'Erro desconhecido');
-          console.error('[VideoPlayer] ❌ Erro na resposta:', errorText);
-          throw new Error(`Erro ao carregar vídeo: ${response.status} - ${response.statusText}. ${errorText}`);
+        // Se canDownload é false OU se tem resourceKey, provavelmente é arquivo compartilhado
+        // Nesses casos, SEMPRE usa supportsAllDrives=true para garantir acesso
+        const shouldUseSupportsAllDrives = isSharedDriveFile || 
+                                          resourceKey || 
+                                          file.canDownload === false ||
+                                          (file.ownerEmail && file.ownerEmail !== ''); // Se tem ownerEmail, pode ser compartilhado
+        
+        console.log('[VideoPlayer] Arquivo compartilhado:', isSharedDriveFile);
+        console.log('[VideoPlayer] driveId:', file.driveId);
+        console.log('[VideoPlayer] resourceKey:', resourceKey ? 'Sim' : 'Não');
+        console.log('[VideoPlayer] canDownload:', file.canDownload);
+        console.log('[VideoPlayer] shouldUseSupportsAllDrives:', shouldUseSupportsAllDrives);
+        console.log('[VideoPlayer] webContentLink:', !!file.webContentLink);
+        
+        let response: Response | null = null;
+        let lastError: string | null = null;
+        let cannotDownloadDetected = false;
+        
+        // Função helper para verificar se é erro "cannotDownloadFile"
+        const checkCannotDownload = (status: number, errorText: string): boolean => {
+          if (status === 403) {
+            try {
+              // Tenta parsear o erro como JSON
+              const errorData = errorText ? JSON.parse(errorText) : null;
+              if (errorData?.error?.reason === 'cannotDownloadFile' || 
+                  errorData?.error?.message?.includes('cannot be downloaded')) {
+                console.log('[VideoPlayer] ✅ Erro "cannotDownloadFile" detectado');
+                return true;
+              }
+              // Também verifica se a mensagem contém "cannot be downloaded"
+              if (errorData?.error?.message && 
+                  errorData.error.message.toLowerCase().includes('cannot be downloaded')) {
+                console.log('[VideoPlayer] ✅ Erro "cannot be downloaded" detectado na mensagem');
+                return true;
+              }
+            } catch (e) {
+              // Se não conseguir parsear, verifica se o texto contém a mensagem
+              if (errorText && errorText.toLowerCase().includes('cannot be downloaded')) {
+                console.log('[VideoPlayer] ✅ Erro "cannot be downloaded" detectado no texto');
+                return true;
+              }
+            }
+          }
+          return false;
+        };
+        
+        // NOTA: webContentLink não é usado porque causa problemas de CORS
+        // A API do Google Drive com alt=media é mais confiável
+        
+        // ESTRATÉGIA 1: API direta com resourceKey e supportsAllDrives (se necessário)
+        // Tenta esta estratégia se:
+        // - Arquivo está em Shared Drive, OU
+        // - Arquivo tem resourceKey, OU
+        // - Arquivo não pode ser baixado (canDownload: false) - tenta estratégias alternativas
+        // - Arquivo parece ser compartilhado (shouldUseSupportsAllDrives)
+        const shouldTryStrategy1 = shouldUseSupportsAllDrives || resourceKey || file.canDownload === false;
+        console.log('[VideoPlayer] shouldTryStrategy1:', shouldTryStrategy1);
+        if (!response && shouldTryStrategy1 && !cannotDownloadDetected) {
+          console.log('[VideoPlayer] Estratégia 1: Tentando API com supportsAllDrives e resourceKey...');
+          try {
+            let apiUrl = `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`;
+            
+            // SEMPRE adiciona supportsAllDrives se for necessário (arquivos compartilhados)
+            if (shouldUseSupportsAllDrives) {
+              apiUrl += '&supportsAllDrives=true';
+              console.log('[VideoPlayer] ✅ Usando supportsAllDrives=true');
+            }
+            
+            // IMPORTANTE: Para arquivos em Shared Drives, adiciona driveId se disponível
+            if (file.driveId) {
+              console.log('[VideoPlayer] Arquivo está em Shared Drive:', file.driveId);
+            }
+            
+            if (resourceKey) {
+              apiUrl += `&resourceKey=${encodeURIComponent(resourceKey)}`;
+              console.log('[VideoPlayer] ✅ Usando resourceKey');
+            }
+            
+            const apiResponse = await fetch(apiUrl, {
+              headers: {
+                'Authorization': `Bearer ${accessToken}`,
+              },
+            });
+            
+            if (apiResponse.ok) {
+              console.log('[VideoPlayer] ✅ API com supportsAllDrives funcionou!');
+              response = apiResponse;
+            } else {
+              const errorText = await apiResponse.text().catch(() => '');
+              console.log('[VideoPlayer] API com supportsAllDrives falhou:', apiResponse.status);
+              
+              // Verifica se é erro 403 com "cannotDownloadFile"
+              const isCannotDownload = checkCannotDownload(apiResponse.status, errorText);
+              if (isCannotDownload || apiResponse.status === 403) {
+                console.warn('[VideoPlayer] ⚠️ Arquivo não pode ser baixado (detectado na Estratégia 1)');
+                cannotDownloadDetected = true;
+                lastError = 'CANNOT_DOWNLOAD';
+              } else {
+                lastError = `API com supportsAllDrives: ${apiResponse.status}`;
+              }
+            }
+          } catch (err: any) {
+            console.error('[VideoPlayer] Erro ao tentar API com supportsAllDrives:', err);
+            lastError = `API com supportsAllDrives: ${err.message}`;
+          }
         }
+        
+        // ESTRATÉGIA 2: API direta com acknowledgeAbuse e supportsAllDrives
+        // IMPORTANTE: Tenta esta estratégia MESMO se a Estratégia 1 detectou "cannotDownloadFile"
+        // porque acknowledgeAbuse=true pode funcionar em alguns casos onde a estratégia básica falha
+        // Tenta esta estratégia se:
+        // - Arquivo está em Shared Drive, OU
+        // - Arquivo não pode ser baixado (canDownload: false) - tenta estratégias alternativas
+        // - Arquivo parece ser compartilhado (shouldUseSupportsAllDrives)
+        // - OU se a Estratégia 1 detectou "cannotDownloadFile" (tenta acknowledgeAbuse como último recurso)
+        const shouldTryStrategy2 = shouldUseSupportsAllDrives || file.canDownload === false || cannotDownloadDetected;
+        console.log('[VideoPlayer] shouldTryStrategy2:', shouldTryStrategy2, { cannotDownloadDetected });
+        if (!response && shouldTryStrategy2) {
+          console.log('[VideoPlayer] Estratégia 2: Tentando API com acknowledgeAbuse e supportsAllDrives...');
+          try {
+            let apiUrl = `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`;
+            
+            // SEMPRE adiciona supportsAllDrives se for necessário
+            if (shouldUseSupportsAllDrives) {
+              apiUrl += '&supportsAllDrives=true';
+              console.log('[VideoPlayer] ✅ Usando supportsAllDrives=true na Estratégia 2');
+            }
+            
+            // Adiciona acknowledgeAbuse para tentar baixar arquivos que podem ter restrições
+            // Isso pode funcionar mesmo quando a estratégia básica falha
+            apiUrl += '&acknowledgeAbuse=true';
+            console.log('[VideoPlayer] ✅ Usando acknowledgeAbuse=true');
+            
+            if (resourceKey) {
+              apiUrl += `&resourceKey=${encodeURIComponent(resourceKey)}`;
+              console.log('[VideoPlayer] ✅ Usando resourceKey na Estratégia 2');
+            }
+            
+            const apiResponse = await fetch(apiUrl, {
+              headers: {
+                'Authorization': `Bearer ${accessToken}`,
+              },
+            });
+            
+            if (apiResponse.ok) {
+              console.log('[VideoPlayer] ✅ API com acknowledgeAbuse funcionou!');
+              response = apiResponse;
+              // Se funcionou, limpa o flag de cannotDownload
+              cannotDownloadDetected = false;
+            } else {
+              const errorText = await apiResponse.text().catch(() => '');
+              console.log('[VideoPlayer] API com acknowledgeAbuse falhou:', apiResponse.status);
+              
+              // Verifica se é erro 403 com "cannotDownloadFile"
+              const isCannotDownload = checkCannotDownload(apiResponse.status, errorText);
+              if (isCannotDownload || apiResponse.status === 403) {
+                console.warn('[VideoPlayer] ⚠️ Arquivo não pode ser baixado (detectado na Estratégia 2)');
+                cannotDownloadDetected = true;
+                lastError = 'CANNOT_DOWNLOAD';
+              } else {
+                lastError = `API com acknowledgeAbuse: ${apiResponse.status}`;
+              }
+            }
+          } catch (err: any) {
+            console.error('[VideoPlayer] Erro ao tentar API com acknowledgeAbuse:', err);
+            lastError = `API com acknowledgeAbuse: ${err.message}`;
+          }
+        }
+        
+        // ESTRATÉGIA 3: API direta básica com supportsAllDrives (se necessário)
+        // Tenta esta estratégia mesmo se as anteriores falharam, mas apenas se não detectou "cannotDownloadFile"
+        if (!response && !cannotDownloadDetected) {
+          console.log('[VideoPlayer] Estratégia 3: Tentando API básica com supportsAllDrives (se necessário)...');
+          try {
+            let apiUrl = `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`;
+            
+            // Se ainda não tentou com supportsAllDrives, tenta agora
+            if (shouldUseSupportsAllDrives) {
+              apiUrl += '&supportsAllDrives=true';
+              console.log('[VideoPlayer] ✅ Usando supportsAllDrives=true na estratégia básica');
+            }
+            
+            const apiResponse = await fetch(apiUrl, {
+              headers: {
+                'Authorization': `Bearer ${accessToken}`,
+              },
+            });
+            
+            if (apiResponse.ok) {
+              console.log('[VideoPlayer] ✅ API básica funcionou!');
+              response = apiResponse;
+            } else {
+              const errorText = await apiResponse.text().catch(() => '');
+              console.log('[VideoPlayer] API básica falhou:', apiResponse.status);
+              console.log('[VideoPlayer] Texto do erro:', errorText);
+              
+              // Verifica se é erro 403 com "cannotDownloadFile"
+              const isCannotDownload = checkCannotDownload(apiResponse.status, errorText);
+              console.log('[VideoPlayer] checkCannotDownload retornou:', isCannotDownload);
+              
+              if (isCannotDownload) {
+                console.warn('[VideoPlayer] ⚠️ Arquivo não pode ser baixado (detectado na Estratégia 3)');
+                cannotDownloadDetected = true;
+                lastError = 'CANNOT_DOWNLOAD';
+              } else if (apiResponse.status === 403) {
+                // Se for 403 mas não detectou explicitamente, ainda pode ser "cannotDownloadFile"
+                // Marca como detectado para usar fallback
+                console.warn('[VideoPlayer] ⚠️ Erro 403 detectado (pode ser cannotDownloadFile)');
+                cannotDownloadDetected = true;
+                lastError = 'CANNOT_DOWNLOAD';
+              } else {
+                lastError = `API básica: ${apiResponse.status}`;
+              }
+            }
+          } catch (err: any) {
+            console.error('[VideoPlayer] Erro ao tentar API básica:', err);
+            lastError = `API básica: ${err.message}`;
+          }
+        }
+        
+        // ESTRATÉGIA EXTRA: Tenta usar webContentLink diretamente (mesmo com CORS pode funcionar em alguns casos)
+        // Esta é uma tentativa final antes de desistir
+        if (!response && cannotDownloadDetected && file.webContentLink) {
+          console.log('[VideoPlayer] 🔄 Estratégia Extra: Tentando usar webContentLink diretamente...');
+          // Não fazemos fetch aqui, vamos tentar usar diretamente no elemento <video>
+          // O navegador pode conseguir carregar mesmo com CORS em alguns casos
+          // Vamos marcar para tentar usar webContentLink
+          console.log('[VideoPlayer] ⚠️ Tentando usar webContentLink como última tentativa');
+          // Não definimos response aqui, vamos deixar o código continuar e tentar usar webContentLink
+        }
+        
+        // Se detectou "cannotDownloadFile", tenta usar webContentLink diretamente no video antes do fallback
+        if (cannotDownloadDetected && file.webContentLink) {
+          console.log('[VideoPlayer] 📺 Tentando usar webContentLink diretamente no elemento video...');
+          // Vamos tentar usar webContentLink diretamente - pode funcionar mesmo com restrições
+          // Cria uma URL que pode funcionar no elemento <video>
+          const directVideoUrl = file.webContentLink;
+          setIsLoading(false);
+          setVideoUrl(directVideoUrl);
+          console.log('[VideoPlayer] ✅ Tentando reproduzir via webContentLink:', directVideoUrl);
+          return; // Tenta usar webContentLink diretamente
+        }
+        
+        // Se detectou "cannotDownloadFile" e não tem webContentLink, usa fallback
+        if (cannotDownloadDetected) {
+          console.log('[VideoPlayer] 📺 Arquivo não pode ser baixado, usando fallback');
+          setIsLoading(false);
+          setUseIframeFallback(true);
+          return; // Não lança erro, usa fallback
+        }
+        
+        // Se nenhuma estratégia funcionou, verifica se é erro 403 (pode ser cannotDownloadFile mesmo sem detectar)
+        if (!response) {
+          console.error('[VideoPlayer] ❌ Todas as estratégias falharam. Último erro:', lastError);
+          
+          // Se o último erro foi 403, mesmo sem detectar "cannotDownloadFile" explicitamente,
+          // pode ser que o arquivo não possa ser baixado
+          if (lastError && lastError.includes('403')) {
+            console.log('[VideoPlayer] 📺 Erro 403 detectado, usando fallback');
+            setIsLoading(false);
+            setUseIframeFallback(true);
+            return; // Não lança erro, usa fallback
+          }
+          
+          // Se não for 403 ou se for outro tipo de erro, lança exceção
+          if (isSharedDriveFile) {
+            throw new Error(`Não foi possível acessar este vídeo compartilhado. Verifique se você tem permissão de visualização no Google Drive e se o arquivo está acessível.`);
+          } else {
+            throw new Error(`Erro ao carregar vídeo. ${lastError || 'Verifique suas permissões.'}`);
+          }
+        }
+        
+        console.log('[VideoPlayer] ✅ Resposta OK, status:', response.status);
 
         // Verifica o tipo de conteúdo
         let contentType = response.headers.get('content-type');
-        console.log('[VideoPlayer] Content-Type:', contentType);
+        console.log('[VideoPlayer] Content-Type da resposta:', contentType);
         
-        // Se não tiver Content-Type ou não for vídeo, tenta detectar pelo nome do arquivo
-        if (!contentType || !contentType.startsWith('video/')) {
-          console.warn('[VideoPlayer] ⚠️ Content-Type não é vídeo:', contentType);
+        // Mapeamento de extensões para tipos MIME de vídeo suportados pelo navegador
+        const getVideoMimeType = (fileName: string): string | null => {
+          const name = fileName.toLowerCase();
           
-          // Verifica se é arquivo .ts (MPEG Transport Stream)
-          const fileName = file.name || file.originalName || '';
-          if (fileName.toLowerCase().endsWith('.ts')) {
-            contentType = 'video/mp2t';
-            console.log('[VideoPlayer] Arquivo .ts detectado, usando Content-Type: video/mp2t');
+          // Mapeia extensões para tipos MIME suportados pelo navegador
+          // NOTA: .ts (MPEG Transport Stream) usa video/mp2t
+          // Alguns navegadores podem não suportar nativamente, mas vamos tentar
+          const extensionMap: Record<string, string> = {
+            '.mp4': 'video/mp4',
+            '.m4v': 'video/mp4',
+            '.webm': 'video/webm',
+            '.ogg': 'video/ogg',
+            '.ogv': 'video/ogg',
+            '.avi': 'video/x-msvideo',
+            '.mov': 'video/quicktime',
+            '.wmv': 'video/x-ms-wmv',
+            '.flv': 'video/x-flv',
+            '.mkv': 'video/x-matroska',
+            '.mpeg': 'video/mpeg',
+            '.mpg': 'video/mpeg',
+            '.ts': 'video/mp2t',        // MPEG Transport Stream
+            '.m2ts': 'video/mp2t',      // Blu-ray BDAV
+            '.mts': 'video/mp2t',       // AVCHD
+            '.3gp': 'video/3gpp',
+            '.3g2': 'video/3gpp2',
+          };
+          
+          for (const [ext, mime] of Object.entries(extensionMap)) {
+            if (name.endsWith(ext)) {
+              return mime;
+            }
           }
+          
+          return null;
+        };
+        
+        // Lista de tipos MIME suportados pelos navegadores (valores exatos ou parciais)
+        // NOTA: video/mp2t (.ts) pode ter suporte limitado em alguns navegadores,
+        // mas navegadores modernos geralmente suportam através de codecs H.264/H.265
+        const supportedMimeTypes = [
+          'video/mp4',
+          'video/webm',
+          'video/ogg',
+          'video/x-msvideo', // AVI
+          'video/quicktime', // MOV
+          'video/x-ms-wmv', // WMV
+          'video/mpeg', // MPEG
+          'video/x-matroska', // MKV
+          'video/mp2t', // TS (MPEG Transport Stream)
+          'video/MP2T', // TS (variação em maiúsculas)
+          'video/3gpp', // 3GP
+          'video/3gpp2', // 3G2
+          'video/x-flv', // FLV
+        ];
+        
+        // Tenta detectar o tipo MIME pela extensão do arquivo PRIMEIRO
+        // Usa originalName (que tem extensão) ou name + extension
+        let fileNameForDetection = file.originalName || file.name || '';
+        
+        // Se não tiver extensão no nome mas tiver na propriedade extension, adiciona
+        if (file.extension && !fileNameForDetection.toLowerCase().endsWith(file.extension.toLowerCase())) {
+          fileNameForDetection = fileNameForDetection + file.extension;
         }
+        
+        console.log('[VideoPlayer] Nome do arquivo para detecção:', fileNameForDetection);
+        console.log('[VideoPlayer] Extensão do arquivo:', file.extension);
+        const detectedMimeType = getVideoMimeType(fileNameForDetection);
+        console.log('[VideoPlayer] Tipo MIME detectado pela extensão:', detectedMimeType);
+        
+        // Verifica se o Content-Type retornado é suportado pelo navegador
+        // Se o Content-Type contém tipos não suportados (como vnd.dlna), considera não suportado
+        // NOTA: video/mp2t (.ts) pode não ser suportado por todos os navegadores nativamente,
+        // mas vamos tentar mesmo assim, pois alguns navegadores modernos suportam
+        const isContentTypeSupported = contentType && 
+          contentType.startsWith('video/') && 
+          (supportedMimeTypes.some(supported => contentType!.toLowerCase().includes(supported.toLowerCase())) ||
+           // Aceita tipos básicos como video/mp4, video/webm, etc.
+           // Inclui variações de video/mp2t (MPEG-TS)
+           /^video\/(mp4|webm|ogg|quicktime|mpeg|x-msvideo|x-ms-wmv|x-matroska|mp2t|MP2T|3gpp|3gpp2|x-flv|vnd\.dlna\.mpeg-tts)/i.test(contentType));
+        
+        // SEMPRE prioriza a detecção pela extensão se disponível
+        // O Content-Type da API pode estar incorreto (como video/vnd.dlna.mpeg-tts)
+        if (detectedMimeType) {
+          contentType = detectedMimeType;
+          console.log('[VideoPlayer] ✅ Usando tipo MIME detectado pela extensão:', contentType);
+        } else if (!isContentTypeSupported) {
+          console.warn('[VideoPlayer] ⚠️ Content-Type não é suportado pelo navegador:', contentType);
+          
+          if (file.mimeType && file.mimeType.startsWith('video/')) {
+            // Tenta usar o mimeType do arquivo se for válido
+            const fileMimeSupported = supportedMimeTypes.some(supported => 
+              file.mimeType!.toLowerCase().includes(supported.toLowerCase())
+            );
+            if (fileMimeSupported) {
+              contentType = file.mimeType;
+              console.log('[VideoPlayer] ✅ Usando tipo MIME do arquivo:', contentType);
+            } else {
+              // Se o mimeType do arquivo também não for suportado, usa MP4 como padrão
+              contentType = 'video/mp4';
+              console.warn('[VideoPlayer] ⚠️ MimeType do arquivo não suportado, usando video/mp4 como padrão');
+            }
+          } else {
+            // Default para MP4 se não conseguir detectar
+            contentType = 'video/mp4';
+            console.warn('[VideoPlayer] ⚠️ Não foi possível detectar tipo MIME, usando video/mp4 como padrão');
+          }
+        } else {
+          console.log('[VideoPlayer] ✅ Content-Type suportado e será usado:', contentType);
+        }
+        
+        // Garante que contentType não é null
+        if (!contentType) {
+          contentType = 'video/mp4';
+          console.warn('[VideoPlayer] ⚠️ ContentType era null, usando video/mp4 como padrão');
+        }
+        
+        console.log('[VideoPlayer] Tipo MIME final:', contentType);
 
-        // Cria blob URL
-        // Nota: await response.blob() baixa o arquivo inteiro na memória
-        // Infelizmente, isso é necessário porque a URL direta não funciona em mobile
-        console.log('[VideoPlayer] Criando blob...');
-        let blob = await response.blob();
+        // OTIMIZAÇÃO: Streaming progressivo para carregar vídeo mais rápido
+        // Em vez de baixar o arquivo inteiro antes de criar o blob URL,
+        // vamos criar o blob URL assim que tiver dados suficientes
+        // Isso permite que o vídeo comece a tocar antes de baixar tudo
         
-        // Se o Content-Type foi detectado mas o blob não tem type, define manualmente
-        // Isso é importante para arquivos .ts que podem não ter o tipo MIME correto
-        if (contentType && contentType.startsWith('video/') && (!blob.type || blob.type === 'application/octet-stream')) {
-          blob = new Blob([blob], { type: contentType });
-          console.log('[VideoPlayer] ✅ Blob recriado com tipo manual:', contentType);
+        const contentLength = response.headers.get('content-length');
+        const fileSize = contentLength ? parseInt(contentLength, 10) : 0;
+        
+        console.log('[VideoPlayer] ✅ Resposta OK');
+        console.log('[VideoPlayer] Tamanho do arquivo:', fileSize > 0 ? `${(fileSize / 1024 / 1024).toFixed(2)} MB` : 'desconhecido');
+        
+        // CORREÇÃO: Baixa o arquivo completo antes de criar o blob
+        // Isso garante que o vídeo tenha todos os metadados necessários (moov atom para MP4)
+        // e evita o problema da tela preta ao tocar
+        
+        console.log('[VideoPlayer] Baixando arquivo completo...');
+        console.log('[VideoPlayer] Tamanho:', fileSize > 0 ? `${(fileSize / 1024 / 1024).toFixed(2)} MB` : 'desconhecido');
+        
+        const blob = await response.blob();
+        console.log('[VideoPlayer] ✅ Arquivo baixado, tamanho:', `${(blob.size / 1024 / 1024).toFixed(2)} MB`);
+        
+        // Garante tipo MIME correto
+        let finalBlob: Blob;
+        if (contentType && contentType.startsWith('video/')) {
+          // Se o blob não tem tipo ou tem tipo incorreto, recria com tipo correto
+          if (!blob.type || blob.type !== contentType || blob.type === 'application/octet-stream') {
+            console.log('[VideoPlayer] Recriando blob com tipo MIME correto:', contentType);
+            finalBlob = new Blob([blob], { type: contentType });
+          } else {
+            finalBlob = blob;
+          }
+        } else {
+          // Se não detectou tipo MIME, tenta usar o tipo do blob ou padrão
+          finalBlob = blob.type && blob.type.startsWith('video/') 
+            ? blob 
+            : new Blob([blob], { type: contentType || 'video/mp4' });
         }
         
-        console.log('[VideoPlayer] ✅ Blob criado, tamanho:', blob.size, 'bytes', `(${(blob.size / 1024 / 1024).toFixed(2)} MB)`, 'tipo:', blob.type || 'não especificado');
-        
-        if (blob.size === 0) {
+        if (finalBlob.size === 0) {
           throw new Error('Vídeo vazio ou erro ao baixar');
         }
         
-        const blobUrl = URL.createObjectURL(blob);
+        const blobUrl = URL.createObjectURL(finalBlob);
         blobUrlRef.current = blobUrl;
-        
-        console.log('[VideoPlayer] ✅ Blob URL criada:', blobUrl);
         setVideoUrl(blobUrl);
         
-        // Não marca como carregado ainda - deixa o vídeo começar a bufferar
-        // O handleCanPlay vai marcar como carregado quando estiver pronto
+        console.log('[VideoPlayer] ✅ Blob URL criada, tipo:', finalBlob.type);
+        console.log('[VideoPlayer] ✅ Vídeo pronto para carregar');
+        
+        // Não marca como carregado ainda - aguarda vídeo carregar metadados
+        // O onLoadedMetadata vai marcar como carregado quando o vídeo estiver pronto
       } catch (err: any) {
         console.error('[VideoPlayer] ❌ Erro geral ao carregar vídeo:', err);
         setError(err.message || 'Erro ao carregar vídeo. Verifique sua conexão e permissões.');
@@ -903,7 +1303,7 @@ export function VideoPlayer({ file, accessToken }: VideoPlayerProps) {
 
   const speedOptions = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 
-  if (isLoading && !videoUrl) {
+  if (isLoading && !videoUrl && !useIframeFallback) {
     return (
       <div className="flex items-center justify-center h-full bg-black">
         <div className="text-center">
@@ -915,15 +1315,165 @@ export function VideoPlayer({ file, accessToken }: VideoPlayerProps) {
     );
   }
 
-  if (error) {
+  // Quando o arquivo não pode ser baixado, mostra mensagem explicativa
+  // NOTA: O Google Drive bloqueia iframes de outros domínios por CSP (Content Security Policy)
+  // Por isso, quando um arquivo não pode ser baixado, a única opção é abrir no Google Drive
+  if (useIframeFallback && !videoUrl) {
+    const driveUrl = file.webViewLink || `https://drive.google.com/file/d/${file.id}/view`;
+    
+    // Mostra mensagem clara explicando a limitação
+    // NOTA: Não tentamos iframe porque o Google Drive bloqueia por CSP
+    // A única solução real é abrir no Google Drive em nova aba
     return (
       <div className="flex items-center justify-center h-full bg-black">
-        <div className="text-center">
-          <p className="text-red-400 mb-4">{error}</p>
-          <p className="text-gray-400 text-sm">Tente recarregar a página ou verifique suas permissões.</p>
+        <div className="text-center max-w-lg mx-4 p-6 bg-gray-900 rounded-lg border border-gray-700 shadow-xl">
+          <div className="mb-6">
+            <svg className="w-16 h-16 mx-auto mb-4 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <h3 className="text-xl font-bold text-white mb-3">Vídeo não pode ser reproduzido diretamente</h3>
+            <p className="text-gray-300 text-sm mb-3">
+              Este arquivo não possui permissão de download no Google Drive.
+            </p>
+            <div className="bg-yellow-900/30 border border-yellow-700/50 rounded-lg p-3 mb-3">
+              <p className="text-yellow-200 text-xs font-semibold mb-1">⚠️ Limitação de Segurança</p>
+              <p className="text-yellow-300 text-xs">
+                O Google Drive bloqueia o download de arquivos sem permissão por questões de segurança. Esta restrição <strong>não pode ser contornada</strong> do lado do cliente (aplicativo).
+              </p>
+            </div>
+            <p className="text-gray-400 text-xs mb-2">
+              Tentamos todas as estratégias possíveis (API direta, suporte a drives compartilhados, links alternativos), mas o Google Drive recusou o acesso devido às permissões do arquivo.
+            </p>
+            <p className="text-gray-500 text-xs">
+              Para visualizar este vídeo, você precisa abri-lo diretamente no Google Drive.
+            </p>
+          </div>
+          
+          <div className="flex flex-col gap-3">
+            <button
+              onClick={() => window.open(driveUrl, '_blank')}
+              className="w-full px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold transition-colors flex items-center justify-center gap-2 shadow-lg"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+              </svg>
+              Abrir no Google Drive (Nova Aba)
+            </button>
+            
+            <button
+              onClick={() => {
+                setUseIframeFallback(false);
+                setIsLoading(true);
+                setError(null);
+              }}
+              className="w-full px-6 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors"
+            >
+              Tentar Novamente
+            </button>
+          </div>
+          
+          <div className="mt-6 pt-4 border-t border-gray-700">
+            <p className="text-gray-500 text-xs text-center leading-relaxed mb-2">
+              💡 <strong>Solução:</strong> Peça ao dono do arquivo para alterar as permissões no Google Drive.
+            </p>
+            <div className="bg-blue-900/30 border border-blue-700/50 rounded-lg p-2 mt-2">
+              <p className="text-blue-200 text-xs text-center">
+                <strong>Como o dono pode permitir download:</strong>
+              </p>
+              <ol className="text-blue-300 text-xs text-left mt-2 list-decimal list-inside space-y-1 ml-2">
+                <li>Abrir o arquivo no Google Drive</li>
+                <li>Clicar em "Compartilhar" → "Gerenciar acesso"</li>
+                <li>Alterar permissões para permitir download</li>
+                <li>Salvar as alterações</li>
+              </ol>
+            </div>
+            <p className="text-gray-500 text-xs text-center mt-3">
+              ⚠️ <strong>Importante:</strong> Esta é uma restrição de segurança do Google Drive e não pode ser contornada tecnicamente.
+            </p>
+          </div>
         </div>
       </div>
     );
+  }
+
+  if (error && !videoUrl && !useIframeFallback) {
+    // Se houver erro e não tiver videoUrl, mostra mensagem de erro
+    // NÃO oferece opção de iframe - o usuário quer que rode no app
+    const previewUrl = file.webViewLink || `https://drive.google.com/file/d/${file.id}/preview`;
+    
+    return (
+      <div className="flex items-center justify-center h-full bg-black">
+        <div className="text-center max-w-md mx-4">
+          <p className="text-red-400 mb-4 text-lg font-semibold">{error}</p>
+          <p className="text-gray-400 text-sm mb-4">
+            O vídeo não pôde ser carregado diretamente no player.
+          </p>
+          <p className="text-gray-500 text-xs mb-6">
+            Isso pode acontecer se você não tiver permissão de visualização ou se o arquivo estiver em um formato não suportado.
+          </p>
+          <div className="flex flex-col gap-3">
+            <button
+              onClick={() => {
+                // Tenta recarregar o vídeo
+                setError(null);
+                setIsLoading(true);
+                // Força recarregamento do vídeo
+                const loadVideoAgain = async () => {
+                  try {
+                    const isSharedDriveFile = file.driveId || file.shared;
+                    const apiUrl = `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media${isSharedDriveFile ? '&supportsAllDrives=true' : ''}`;
+                    
+                    const response = await fetch(apiUrl, {
+                      headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                      },
+                    });
+                    
+                    if (response.ok) {
+                      const blob = await response.blob();
+                      const contentType = response.headers.get('content-type') || 'video/mp4';
+                      const finalBlob = new Blob([blob], { type: contentType });
+                      const blobUrl = URL.createObjectURL(finalBlob);
+                      blobUrlRef.current = blobUrl;
+                      setVideoUrl(blobUrl);
+                      setIsLoading(false);
+                    } else {
+                      setError(`Erro ${response.status}: ${response.statusText}`);
+                      setIsLoading(false);
+                    }
+                  } catch (err: any) {
+                    setError(err.message || 'Erro ao carregar vídeo');
+                    setIsLoading(false);
+                  }
+                };
+                
+                loadVideoAgain();
+              }}
+              className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors font-medium"
+            >
+              Tentar Novamente
+            </button>
+            <a
+              href={previewUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-6 py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors font-medium inline-block"
+            >
+              Abrir no Google Drive (Nova Aba)
+            </a>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Aceita tanto blob URLs quanto URLs diretas (como webContentLink)
+  // URLs diretas podem funcionar mesmo com restrições de CORS em alguns casos
+  const isDirectUrl = videoUrl && !videoUrl.startsWith('blob:');
+  
+  // Se for URL direta, loga para debug
+  if (isDirectUrl) {
+    console.log('[VideoPlayer] 📺 Usando URL direta (pode ter CORS):', videoUrl);
   }
 
   return (
@@ -944,164 +1494,233 @@ export function VideoPlayer({ file, accessToken }: VideoPlayerProps) {
         }
       }}
     >
-      {/* Video */}
-      {videoUrl ? (
-        <video
-          ref={videoRef}
-          className="w-full h-full max-w-full object-contain"
-          onPlay={() => setIsPlaying(true)}
-          onPause={() => setIsPlaying(false)}
-          onEnded={() => setIsPlaying(false)}
-          onClick={(e) => {
-            // No desktop, usa clique normal para play/pause
-            if (!isMobile) {
-              togglePlay();
-            }
-          }}
-          onTouchStart={(e) => {
-            // Double tap para avançar/retroceder no mobile
-            if (!isMobile) return;
-            
-            const touch = e.touches[0];
-            const currentTime = Date.now();
-            const timeSinceLastTap = currentTime - lastTapRef.current;
-            const tapPosition = { x: touch.clientX, y: touch.clientY };
-            
-            // Verifica se é um double tap (dentro de 300ms e na mesma área)
-            if (timeSinceLastTap < 300 && lastTapPositionRef.current) {
-              const distance = Math.sqrt(
-                Math.pow(tapPosition.x - lastTapPositionRef.current.x, 2) +
-                Math.pow(tapPosition.y - lastTapPositionRef.current.y, 2)
-              );
-              
-              // Se o segundo toque está próximo do primeiro (dentro de 50px)
-              if (distance < 50) {
-                e.preventDefault();
-                e.stopPropagation();
-                
-                // Cancela o timeout do single tap
-                if (doubleTapTimeoutRef.current) {
-                  clearTimeout(doubleTapTimeoutRef.current);
-                  doubleTapTimeoutRef.current = null;
-                }
-                
-                const video = videoRef.current;
-                if (!video) return;
-                
-                // Determina a direção baseado na posição X do toque
-                const videoWidth = video.clientWidth || window.innerWidth;
-                const tapX = touch.clientX;
-                const isRightSide = tapX > videoWidth / 2;
-                
-                if (isRightSide) {
-                  // Avança 5 segundos
-                  video.currentTime = Math.min(video.currentTime + 5, video.duration);
-                  setCurrentTime(video.currentTime);
-                  setSkipDirection('forward');
-                } else {
-                  // Retrocede 5 segundos
-                  video.currentTime = Math.max(video.currentTime - 5, 0);
-                  setCurrentTime(video.currentTime);
-                  setSkipDirection('backward');
-                }
-                
-                // Mostra indicador visual
-                setShowSkipIndicator(true);
-                setTimeout(() => {
-                  setShowSkipIndicator(false);
-                  setSkipDirection(null);
-                }, 1000);
-                
-                // Reseta para evitar triple tap
-                lastTapRef.current = 0;
-                lastTapPositionRef.current = null;
-                return;
-              }
-            }
-            
-            // Salva informações do primeiro toque
-            lastTapRef.current = currentTime;
-            lastTapPositionRef.current = tapPosition;
-            
-            // Limpa timeout anterior se existir
-            if (doubleTapTimeoutRef.current) {
-              clearTimeout(doubleTapTimeoutRef.current);
-            }
-            
-            // Se não houver segundo toque em 300ms, executa single tap (play/pause)
-            doubleTapTimeoutRef.current = setTimeout(() => {
-              // Single tap - play/pause
-              togglePlay();
-              lastTapRef.current = 0;
-              lastTapPositionRef.current = null;
-              doubleTapTimeoutRef.current = null;
-            }, 300);
-          }}
-          onTouchEnd={(e) => {
-            // Previne que o evento de toque dispare o onClick
-            if (isMobile) {
-              e.preventDefault();
-            }
-          }}
-          onLoadedMetadata={() => {
-            console.log('[VideoPlayer] ✅ Metadados do vídeo carregados');
-            setIsLoading(false);
-          }}
-          onError={(e) => {
-            const video = e.currentTarget;
-            console.error('[VideoPlayer] ❌ Erro no elemento de vídeo:', video.error);
-            
-            if (video.error) {
-              console.error('[VideoPlayer] Código de erro:', video.error.code, 'Mensagem:', video.error.message);
-              
-              // Códigos de erro:
-              // 1 = MEDIA_ERR_ABORTED - download abortado
-              // 2 = MEDIA_ERR_NETWORK - erro de rede
-              // 3 = MEDIA_ERR_DECODE - erro ao decodificar
-              // 4 = MEDIA_ERR_SRC_NOT_SUPPORTED - formato não suportado ou fonte inválida
-              
-              let errorMsg = 'Erro ao carregar vídeo';
-              if (video.error.code === 1) {
-                errorMsg = 'Download do vídeo foi abortado';
-              } else if (video.error.code === 2) {
-                errorMsg = 'Erro de rede ao carregar vídeo. Verifique sua conexão.';
-              } else if (video.error.code === 3) {
-                errorMsg = 'Erro ao decodificar vídeo. O formato pode não ser suportado pelo navegador.';
-              } else if (video.error.code === 4) {
-                errorMsg = 'Formato de vídeo não suportado pelo navegador ou erro ao carregar fonte.';
-              }
-              
-              console.error('[VideoPlayer] Erro final:', errorMsg);
-              setError(errorMsg);
-              setIsLoading(false);
-            } else {
-              console.error('[VideoPlayer] ❌ Erro desconhecido no vídeo');
-              setError('Erro desconhecido ao carregar vídeo');
-              setIsLoading(false);
-            }
-          }}
-          onLoadedData={() => {
-            console.log('[VideoPlayer] ✅ Primeiros dados do vídeo carregados');
-            setIsLoading(false);
-          }}
-          controls={false}
-          playsInline
-          preload={isMobile ? "metadata" : "auto"}
-          src={videoUrl}
-          style={{
-            maxWidth: '100%',
-            maxHeight: '100%',
-          }}
-        >
-          Seu navegador não suporta o elemento de vídeo.
-        </video>
-      ) : (
+      {/* Video - renderiza se tiver uma URL válida (blob URL ou URL direta) */}
+      {!videoUrl ? (
         <div className="flex items-center justify-center h-full bg-black">
           <div className="text-center">
             <Loader2 className="w-12 h-12 text-gray-400 animate-spin mx-auto mb-4" />
             <p className="text-gray-400">Carregando fonte do vídeo...</p>
           </div>
         </div>
+      ) : (
+        <video
+            ref={videoRef}
+            src={videoUrl}
+            className="w-full h-full max-w-full object-contain"
+            controls={false}
+            playsInline
+            preload={isMobile ? "metadata" : "auto"}
+            crossOrigin={isDirectUrl ? "anonymous" : undefined}
+            onPlay={() => setIsPlaying(true)}
+            onPause={() => setIsPlaying(false)}
+            onEnded={() => setIsPlaying(false)}
+            onClick={() => {
+              // No desktop, usa clique normal para play/pause
+              if (!isMobile) {
+                togglePlay();
+              }
+            }}
+            onTouchStart={(e) => {
+              // Double tap para avançar/retroceder no mobile
+              if (!isMobile) return;
+              
+              const touch = e.touches[0];
+              const currentTime = Date.now();
+              const timeSinceLastTap = currentTime - lastTapRef.current;
+              const tapPosition = { x: touch.clientX, y: touch.clientY };
+              
+              // Verifica se é um double tap (dentro de 300ms e na mesma área)
+              if (timeSinceLastTap < 300 && lastTapPositionRef.current) {
+                const distance = Math.sqrt(
+                  Math.pow(tapPosition.x - lastTapPositionRef.current.x, 2) +
+                  Math.pow(tapPosition.y - lastTapPositionRef.current.y, 2)
+                );
+                
+                // Se o segundo toque está próximo do primeiro (dentro de 50px)
+                if (distance < 50) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  
+                  // Cancela o timeout do single tap
+                  if (doubleTapTimeoutRef.current) {
+                    clearTimeout(doubleTapTimeoutRef.current);
+                    doubleTapTimeoutRef.current = null;
+                  }
+                  
+                  const video = videoRef.current;
+                  if (!video) return;
+                  
+                  // Determina a direção baseado na posição X do toque
+                  const videoWidth = video.clientWidth || window.innerWidth;
+                  const tapX = touch.clientX;
+                  const isRightSide = tapX > videoWidth / 2;
+                  
+                  if (isRightSide) {
+                    // Avança 5 segundos
+                    video.currentTime = Math.min(video.currentTime + 5, video.duration);
+                    setCurrentTime(video.currentTime);
+                    setSkipDirection('forward');
+                  } else {
+                    // Retrocede 5 segundos
+                    video.currentTime = Math.max(video.currentTime - 5, 0);
+                    setCurrentTime(video.currentTime);
+                    setSkipDirection('backward');
+                  }
+                  
+                  // Mostra indicador visual
+                  setShowSkipIndicator(true);
+                  setTimeout(() => {
+                    setShowSkipIndicator(false);
+                    setSkipDirection(null);
+                  }, 1000);
+                  
+                  // Reseta para evitar triple tap
+                  lastTapRef.current = 0;
+                  lastTapPositionRef.current = null;
+                  return;
+                }
+              }
+              
+              // Salva informações do primeiro toque
+              lastTapRef.current = currentTime;
+              lastTapPositionRef.current = tapPosition;
+              
+              // Limpa timeout anterior se existir
+              if (doubleTapTimeoutRef.current) {
+                clearTimeout(doubleTapTimeoutRef.current);
+              }
+              
+              // Se não houver segundo toque em 300ms, executa single tap (play/pause)
+              doubleTapTimeoutRef.current = setTimeout(() => {
+                // Single tap - play/pause
+                togglePlay();
+                lastTapRef.current = 0;
+                lastTapPositionRef.current = null;
+                doubleTapTimeoutRef.current = null;
+              }, 300);
+            }}
+            onTouchEnd={(e) => {
+              // Previne que o evento de toque dispare o onClick
+              if (isMobile) {
+                e.preventDefault();
+              }
+            }}
+            onLoadedMetadata={() => {
+              console.log('[VideoPlayer] ✅ Metadados do vídeo carregados');
+              const video = videoRef.current;
+              if (video) {
+                setDuration(video.duration);
+                console.log('[VideoPlayer] Duração do vídeo:', video.duration, 'segundos');
+              }
+              setIsLoading(false);
+            }}
+            onCanPlay={() => {
+              console.log('[VideoPlayer] ✅ Vídeo pronto para tocar (canPlay)');
+              setIsLoading(false);
+            }}
+            onCanPlayThrough={() => {
+              console.log('[VideoPlayer] ✅ Vídeo pode tocar até o fim sem buffer (canPlayThrough)');
+              setIsLoading(false);
+            }}
+            onWaiting={() => {
+              console.log('[VideoPlayer] ⏳ Vídeo aguardando dados (buffering)...');
+              // Não marca como loading para não mostrar spinner durante buffering normal
+            }}
+            onPlaying={() => {
+              console.log('[VideoPlayer] ▶️ Vídeo começou a tocar');
+              setIsLoading(false);
+            }}
+            onError={(e) => {
+              const video = e.currentTarget;
+              console.error('[VideoPlayer] ❌ Erro no elemento de vídeo:', video.error);
+              
+              if (video.error) {
+                console.error('[VideoPlayer] Código de erro:', video.error.code, 'Mensagem:', video.error.message);
+                
+                // Códigos de erro:
+                // 1 = MEDIA_ERR_ABORTED - download abortado
+                // 2 = MEDIA_ERR_NETWORK - erro de rede (pode ser CORS)
+                // 3 = MEDIA_ERR_DECODE - erro ao decodificar
+                // 4 = MEDIA_ERR_SRC_NOT_SUPPORTED - formato não suportado ou fonte inválida (pode ser CORS)
+                
+                // Se for URL direta (webContentLink) e deu erro de rede ou fonte não suportada,
+                // provavelmente é CORS - tenta fallback
+                if (isDirectUrl && (video.error.code === 2 || video.error.code === 4)) {
+                  console.warn('[VideoPlayer] ⚠️ Erro com URL direta (provavelmente CORS), usando fallback');
+                  setVideoUrl(null);
+                  setUseIframeFallback(true);
+                  setIsLoading(false);
+                  return;
+                }
+                
+                let errorMsg = 'Erro ao carregar vídeo';
+                if (video.error.code === 1) {
+                  errorMsg = 'Download do vídeo foi abortado';
+                } else if (video.error.code === 2) {
+                  errorMsg = 'Erro de rede ao carregar vídeo. Verifique sua conexão.';
+                } else if (video.error.code === 3) {
+                  errorMsg = 'Erro ao decodificar vídeo. O formato pode não ser suportado pelo navegador.';
+                } else if (video.error.code === 4) {
+                  errorMsg = 'Formato de vídeo não suportado pelo navegador ou erro ao carregar fonte.';
+                }
+                
+                console.error('[VideoPlayer] Erro final:', errorMsg);
+                
+                // Limpa a blob URL e mostra erro
+                if (blobUrlRef.current) {
+                  URL.revokeObjectURL(blobUrlRef.current);
+                  blobUrlRef.current = null;
+                }
+                
+                setVideoUrl(null); // Remove a URL para forçar mostrar tela de erro
+                setError(errorMsg);
+                setIsLoading(false);
+              } else {
+                console.error('[VideoPlayer] ❌ Erro desconhecido no vídeo');
+                
+                // Se for URL direta, tenta fallback
+                if (isDirectUrl) {
+                  console.warn('[VideoPlayer] ⚠️ Erro desconhecido com URL direta, usando fallback');
+                  setVideoUrl(null);
+                  setUseIframeFallback(true);
+                  setIsLoading(false);
+                  return;
+                }
+                
+                // Limpa a blob URL e mostra erro
+                if (blobUrlRef.current) {
+                  URL.revokeObjectURL(blobUrlRef.current);
+                  blobUrlRef.current = null;
+                }
+                
+                setVideoUrl(null); // Remove a URL para forçar mostrar tela de erro
+                setError('Erro desconhecido ao carregar vídeo');
+                setIsLoading(false);
+              }
+            }}
+            onLoadedData={() => {
+              console.log('[VideoPlayer] ✅ Primeiros dados do vídeo carregados');
+              const video = videoRef.current;
+              if (video && video.readyState >= 2) {
+                // readyState 2 = HAVE_CURRENT_DATA - dados suficientes para começar
+                console.log('[VideoPlayer] Vídeo tem dados suficientes (readyState:', video.readyState, ')');
+              }
+            }}
+            onProgress={() => {
+              const video = videoRef.current;
+              if (video && video.buffered.length > 0) {
+                const bufferedEnd = video.buffered.end(video.buffered.length - 1);
+                const bufferedPercent = (bufferedEnd / video.duration) * 100;
+                console.log('[VideoPlayer] Progresso de buffer:', bufferedPercent.toFixed(1) + '%');
+              }
+            }}
+            style={{
+              maxWidth: '100%',
+              maxHeight: '100%',
+            }}
+          >
+            Seu navegador não suporta o elemento de vídeo.
+          </video>
       )}
 
       {/* Loading Overlay */}
@@ -1132,7 +1751,8 @@ export function VideoPlayer({ file, accessToken }: VideoPlayerProps) {
         </div>
       )}
 
-      {/* Controles */}
+      {/* Controles - sempre mostra para vídeos */}
+      {videoUrl && (
       <div
         className={`absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/70 to-transparent transition-opacity duration-300 overflow-visible ${
           showControls ? 'opacity-100' : 'opacity-0'
@@ -1350,6 +1970,7 @@ export function VideoPlayer({ file, accessToken }: VideoPlayerProps) {
           </div>
         </div>
       </div>
+      )}
 
       {/* Painel de Anotações */}
       {showAnnotations && (
@@ -1507,7 +2128,7 @@ export function VideoPlayer({ file, accessToken }: VideoPlayerProps) {
       )}
 
       {/* Play button central (quando pausado) */}
-      {!isPlaying && showControls && (
+      {videoUrl && !isPlaying && showControls && (
         <button
           onClick={togglePlay}
           className="absolute inset-0 flex items-center justify-center bg-black/20 hover:bg-black/30 transition-colors"

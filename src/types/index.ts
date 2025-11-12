@@ -36,6 +36,7 @@ export interface FileItem {
   permissionCount?: number;
   mimeType?: string;
   driveId?: string; // ID do Shared Drive, se este item estiver dentro de um
+  resourceKey?: string; // Necessário para alguns arquivos compartilhados
 }
 
 export type FilterType = 'all' | 'pdf' | 'video' | 'image' | 'folder';

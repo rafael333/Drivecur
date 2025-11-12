@@ -50,7 +50,7 @@ export function FileViewer({ file, onClose, accessToken }: FileViewerProps) {
 
     // Verifica pela extensão
     if (file.extension) {
-      const videoExts = ['.mp4', '.avi', '.mov', '.wmv', '.webm', '.mkv', '.mpeg', '.flv', '.mpg', '.m4v', '.3gp', '.ts'];
+      const videoExts = ['.mp4', '.avi', '.mov', '.wmv', '.webm', '.mkv', '.mpeg', '.flv', '.mpg', '.m4v', '.3gp', '.ts', '.m2ts', '.mts'];
       if (videoExts.some(ext => file.extension?.toLowerCase().includes(ext.toLowerCase()))) {
         return true;
       }
@@ -59,7 +59,7 @@ export function FileViewer({ file, onClose, accessToken }: FileViewerProps) {
     // Verifica pelo nome do arquivo
     if (file.originalName || file.name) {
       const name = (file.originalName || file.name).toLowerCase();
-      const videoExts = ['.mp4', '.avi', '.mov', '.wmv', '.webm', '.mkv', '.mpeg', '.flv', '.mpg', '.m4v', '.3gp', '.ts'];
+      const videoExts = ['.mp4', '.avi', '.mov', '.wmv', '.webm', '.mkv', '.mpeg', '.flv', '.mpg', '.m4v', '.3gp', '.ts', '.m2ts', '.mts'];
       if (videoExts.some(ext => name.endsWith(ext))) {
         return true;
       }

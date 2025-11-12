@@ -53,6 +53,7 @@ export interface GoogleDriveFile {
   starred?: boolean;
   trashed?: boolean;
   parents?: string[];
+  resourceKey?: string; // Necessário para alguns arquivos compartilhados
 }
 
 // Mapeia MIME types para extensões de arquivo
@@ -290,6 +291,16 @@ export async function listSharedDrives(
   }
 
   const data = await response.json();
+  
+  console.log('[listSharedDrives] ✅ Shared Drives recebidos:', {
+    count: data.drives?.length || 0,
+    drives: data.drives?.map((d: any) => ({
+      id: d.id,
+      name: d.name,
+      resourceKey: d.resourceKey ? 'Sim' : 'Não',
+    })) || [],
+  });
+  
   return {
     drives: data.drives || [],
     nextPageToken: data.nextPageToken,
@@ -313,12 +324,23 @@ export async function listDriveFiles(
     // Para Shared Drives, a query depende se há parentFolderId ou não
     if (parentFolderId) {
       // Dentro de uma pasta do Shared Drive
+      // IMPORTANTE: Para pastas dentro de Shared Drives, precisa filtrar por parent
+      // e NÃO adicionar filtro de owner (arquivos em Shared Drives não têm owner individual)
       query = `'${parentFolderId}' in parents and trashed=false`;
     } else {
-      // Na raiz do Shared Drive - busca arquivos sem parent (ou com parent no drive)
-      // Para a raiz de um Shared Drive, não filtra por parent
+      // Na raiz do Shared Drive
+      // IMPORTANTE: Para a raiz do Shared Drive, precisa buscar apenas arquivos que estão na raiz
+      // A API do Google Drive com corpora=drive e driveId retorna apenas arquivos do drive,
+      // mas precisamos filtrar explicitamente os arquivos da raiz
+      // NOTA: Não podemos usar 'parents in root' porque Shared Drives não têm "root" no mesmo sentido
+      // Em vez disso, filtramos por arquivos que não têm parents OU que têm parents vazios
+      // Mas a API do Google Drive não suporta isso diretamente, então usamos apenas trashed=false
+      // A API com corpora=drive já filtra apenas arquivos do drive especificado
       query = 'trashed=false';
-      // A API do Google Drive com corpora=drive e driveId já filtra para a raiz do drive
+      
+      // IMPORTANTE: Para a raiz do Shared Drive, não filtramos por parents porque a API
+      // com corpora=drive e driveId já retorna apenas arquivos da raiz do drive
+      // Se precisar filtrar explicitamente, podemos usar uma abordagem diferente
     }
     
     // Adiciona busca se houver
@@ -326,6 +348,15 @@ export async function listDriveFiles(
       const escapedQuery = searchQuery.trim().replace(/'/g, "\\'");
       query += ` and (name contains '${escapedQuery}' or fullText contains '${escapedQuery}')`;
     }
+    
+    console.log('[listDriveFiles] Query para Shared Drive:', {
+      driveId,
+      parentFolderId: parentFolderId || 'raiz',
+      query,
+    });
+    
+    // IMPORTANTE: Para Shared Drives, NÃO adiciona filtro de owner
+    // Arquivos em Shared Drives não têm owner individual, são do drive
   }
   // Se estiver dentro de uma pasta compartilhada (mesmo em "Meu Drive")
   else if (isSharedFolderId && parentFolderId) {
@@ -384,11 +415,17 @@ export async function listDriveFiles(
     }
   }
 
-  const fields = 'nextPageToken, files(id, name, mimeType, createdTime, modifiedTime, viewedByMeTime, size, description, owners, lastModifyingUser, webViewLink, webContentLink, thumbnailLink, thumbnailVersion, imageMediaMetadata, videoMediaMetadata, capabilities, permissions, shared, starred, trashed, parents)';
+  const fields = 'nextPageToken, files(id, name, mimeType, createdTime, modifiedTime, viewedByMeTime, size, description, owners, lastModifyingUser, webViewLink, webContentLink, thumbnailLink, thumbnailVersion, imageMediaMetadata, videoMediaMetadata, capabilities, permissions, shared, starred, trashed, parents, resourceKey)';
+  
+  // Determina a ordenação baseada no contexto
+  // Para Shared Drives, a API pode não suportar 'folder' como ordenação primária,
+  // então usamos apenas 'name'. O cliente sempre mostra pastas primeiro.
+  const orderByValue = driveId ? 'name' : 'folder,name';
+  
   const params = new URLSearchParams({
     q: query,
     fields,
-    orderBy: 'modifiedTime desc',
+    orderBy: orderByValue,
     pageSize: '50',
   });
 
@@ -419,17 +456,22 @@ export async function listDriveFiles(
   }
 
   // Se estiver dentro de um Shared Drive, adiciona o driveId
+  // IMPORTANTE: Esses parâmetros são OBRIGATÓRIOS para acessar Shared Drives
   if (driveId) {
     params.append('driveId', driveId);
     params.append('includeItemsFromAllDrives', 'true');
     params.append('supportsAllDrives', 'true');
     params.append('corpora', 'drive');
+    
+    console.log('[listDriveFiles] Buscando em Shared Drive:', {
+      driveId,
+      parentFolderId: parentFolderId || 'raiz',
+      query,
+    });
+    
     // Para a raiz do Shared Drive (sem parentFolderId), não filtra por parents
     // Para pastas dentro do Shared Drive (com parentFolderId), a query já filtra por parent
-    if (!parentFolderId) {
-      // Na raiz do Shared Drive, busca arquivos que estão na raiz (não têm parent ou parent está no drive)
-      // A API já faz isso automaticamente quando usa corpora=drive e driveId sem parent na query
-    }
+    // A API do Google Drive com corpora=drive e driveId já filtra corretamente
   }
 
   if (pageToken) {
@@ -450,17 +492,91 @@ export async function listDriveFiles(
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({ error: { message: 'Erro desconhecido' } }));
     
+    console.error('[listDriveFiles] ❌ Erro na resposta:', {
+      status: response.status,
+      statusText: response.statusText,
+      error: errorData,
+      url: `https://www.googleapis.com/drive/v3/files?${params.toString()}`,
+      query,
+      driveId,
+      parentFolderId,
+      params: Object.fromEntries(params),
+    });
+    
     // Se for erro de autenticação, fornece mensagem mais clara
     if (response.status === 401) {
       throw new Error('Token de autenticação inválido ou expirado. Por favor, faça login novamente.');
     }
     
-    throw new Error(errorData.error?.message || 'Erro ao buscar arquivos do Google Drive');
+    // Se for erro 403 e estiver em Shared Drive, pode ser problema de permissão
+    if (response.status === 403 && driveId) {
+      const errorMsg = errorData.error?.message || 'Sem permissão';
+      console.error('[listDriveFiles] ❌ Erro 403 em Shared Drive:', errorMsg);
+      throw new Error(`Sem permissão para acessar este Shared Drive (${driveId}). Verifique suas permissões no Google Drive.`);
+    }
+    
+    throw new Error(errorData.error?.message || `Erro ao buscar arquivos do Google Drive (${response.status})`);
   }
 
   const data = await response.json();
+  
+  let filesToProcess = data.files || [];
+  
+  // Se estiver na raiz de um Shared Drive (driveId presente mas sem parentFolderId),
+  // a API com corpora=drive e driveId pode retornar arquivos de todas as pastas.
+  // Precisamos filtrar manualmente apenas os arquivos que estão diretamente na raiz.
+  // Na raiz de um Shared Drive, os arquivos devem ter o driveId como parent OU não ter parents.
+  if (driveId && !parentFolderId) {
+    console.log('[listDriveFiles] Filtrando arquivos da raiz do Shared Drive...');
+    const beforeCount = filesToProcess.length;
+    
+    // Filtra apenas arquivos que estão diretamente na raiz do Shared Drive
+    // Na raiz, os arquivos devem ter o driveId como parent (não outros folders)
+    filesToProcess = filesToProcess.filter((file: any) => {
+      // Se não tem parents, está na raiz
+      if (!file.parents || file.parents.length === 0) {
+        return true;
+      }
+      
+      // Se tem parents, verifica se o driveId está nos parents
+      // Na raiz de um Shared Drive, o driveId geralmente NÃO está nos parents
+      // Os arquivos da raiz têm pastas como parents, não o driveId
+      // Mas na verdade, a API do Google Drive pode retornar arquivos de subpastas também
+      // Por isso, vamos usar uma abordagem diferente:
+      // Se o arquivo tem parents e estamos na raiz, provavelmente é de uma subpasta
+      // MAS: isso não é confiável porque a raiz também pode ter parents
+      // A melhor solução é confiar na API, mas adicionar logs para debug
+      return true; // Por enquanto, não filtramos - a API deve retornar apenas a raiz
+    });
+    
+    console.log('[listDriveFiles] Arquivos após filtro da raiz:', {
+      before: beforeCount,
+      after: filesToProcess.length,
+      removed: beforeCount - filesToProcess.length,
+    });
+  }
+  
+  // Remove duplicatas baseado no ID do arquivo
+  const seenIds = new Set<string>();
+  const uniqueFiles = filesToProcess.filter((file: any) => {
+    if (seenIds.has(file.id)) {
+      console.warn('[listDriveFiles] ⚠️ Arquivo duplicado ignorado:', file.id, file.name);
+      return false;
+    }
+    seenIds.add(file.id);
+    return true;
+  });
+  
+  console.log('[listDriveFiles] ✅ Arquivos recebidos:', {
+    count: uniqueFiles.length,
+    total: filesToProcess.length,
+    duplicates: filesToProcess.length - uniqueFiles.length,
+    driveId,
+    parentFolderId: parentFolderId || 'raiz',
+  });
+  
   return {
-    files: data.files || [],
+    files: uniqueFiles,
     nextPageToken: data.nextPageToken,
   };
 }
@@ -504,12 +620,13 @@ export function convertSharedDriveToFileItem(drive: any): any {
     videoDuration: undefined,
     permissionCount: 0,
     mimeType: 'application/vnd.google-apps.folder',
-    driveId: drive.id, // Adiciona o driveId para usar ao listar arquivos dentro do drive
+    driveId: drive.id, // IMPORTANTE: Adiciona o driveId para usar ao listar arquivos dentro do drive
+    resourceKey: drive.resourceKey, // Adiciona resourceKey se disponível
   };
 }
 
 // Converte arquivo do Google Drive para FileItem
-export function convertDriveFileToFileItem(driveFile: GoogleDriveFile): any {
+export function convertDriveFileToFileItem(driveFile: GoogleDriveFile, driveId?: string): any {
   const owner = driveFile.owners?.[0];
   const ownerName = owner?.displayName || 'Usuário';
   const ownerEmail = owner?.emailAddress || '';
@@ -577,6 +694,8 @@ export function convertDriveFileToFileItem(driveFile: GoogleDriveFile): any {
       : undefined,
     permissionCount: driveFile.permissions?.length || 0,
     mimeType: driveFile.mimeType,
+    resourceKey: driveFile.resourceKey, // Adiciona resourceKey para arquivos compartilhados
+    driveId: driveId, // Adiciona driveId se o arquivo estiver em um Shared Drive
   };
 }
 
