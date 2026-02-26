@@ -17,10 +17,10 @@ interface FileDetailsProps {
 export function FileDetails({ file, onClose, onView, accessToken, onDownloadStart, onDownloadProgress, onDownloadComplete, onDownloadError }: FileDetailsProps) {
   const handleDownload = async () => {
     if (!accessToken) return;
-    
+
     const fileName = file.originalName || file.name || 'download';
     const downloadId = onDownloadStart ? onDownloadStart(fileName) : null;
-    
+
     try {
       await downloadFile(
         file,
@@ -29,7 +29,7 @@ export function FileDetails({ file, onClose, onView, accessToken, onDownloadStar
           ? (progress) => onDownloadProgress(downloadId, progress)
           : undefined
       );
-      
+
       if (downloadId && onDownloadComplete) {
         onDownloadComplete(downloadId);
       }
@@ -44,15 +44,15 @@ export function FileDetails({ file, onClose, onView, accessToken, onDownloadStar
   return (
     <div className="
       fixed lg:relative inset-y-0 right-0 z-50
-      w-full lg:w-96 bg-[#1a1a1a] border-l border-gray-800 
-      flex flex-col overflow-auto transform transition-transform duration-300
-      lg:translate-x-0
+      w-full lg:w-96 glass-panel border-l border-app-glassBorder shadow-2xl lg:shadow-none
+      flex flex-col overflow-auto transform transition-transform duration-300 ease-out
+      lg:translate-x-0 lg:my-4 lg:mr-4 lg:rounded-3xl lg:border lg:h-[calc(100vh-2rem)]
     ">
-      <div className="p-4 sm:p-6 border-b border-gray-800 flex items-center justify-between sticky top-0 bg-[#1a1a1a] z-10">
-        <h2 className="text-base sm:text-lg font-semibold">Detalhes do arquivo</h2>
+      <div className="p-4 sm:p-6 border-b border-app-glassBorder flex items-center justify-between sticky top-0 bg-app-surface/50 backdrop-blur-md z-10 lg:rounded-t-3xl">
+        <h2 className="text-base sm:text-lg font-semibold text-app-textPrimary">Detalhes do arquivo</h2>
         <button
           onClick={onClose}
-          className="p-2 hover:bg-gray-800 rounded-lg transition-colors"
+          className="p-2 hover:bg-app-glassHover rounded-full transition-colors bg-gray-800/30"
           aria-label="Fechar detalhes"
         >
           <X className="w-5 h-5 text-gray-400" />
@@ -61,59 +61,62 @@ export function FileDetails({ file, onClose, onView, accessToken, onDownloadStar
 
       <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
         <div className="flex flex-col items-center text-center">
-          <div className="mb-4">
+          <div className="mb-4 w-20 h-20 sm:w-24 sm:h-24 bg-app-surface border border-app-glassBorder rounded-2xl flex items-center justify-center shadow-inner group-hover:scale-105 transition-transform duration-300">
             <FileIcon type={file.type} />
           </div>
           <div className="flex items-center gap-2 mb-1 flex-wrap justify-center">
-            <h3 className="text-base sm:text-xl font-semibold break-words text-center">{file.originalName || file.name}</h3>
+            <h3 className="text-base sm:text-xl font-semibold break-words text-center text-app-textPrimary px-2">{file.originalName || file.name}</h3>
             {file.extension && (
-              <span className="text-gray-400 text-xs sm:text-sm font-mono flex-shrink-0">
+              <span className="text-app-textSecondary bg-app-glassHover px-2 py-0.5 rounded-md text-xs sm:text-sm font-mono flex-shrink-0 border border-app-glassBorder">
                 {file.extension}
               </span>
             )}
           </div>
-          <p className="text-gray-400 text-sm">{file.size}</p>
+          <p className="text-app-textMuted text-sm mt-1">{file.size}</p>
         </div>
 
         <div className="space-y-3">
           {onView && (
             <button
               onClick={onView}
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white px-4 py-3 rounded-lg flex items-center justify-center gap-2 font-medium transition-colors"
+              className="w-full bg-app-surface hover:bg-app-glassHover text-app-textPrimary px-4 py-3 rounded-2xl flex items-center justify-center gap-2 font-medium transition-all duration-300 active:scale-[0.98] border border-app-glassBorder shadow-sm"
             >
-              <Eye className="w-5 h-5" />
+              <Eye className="w-5 h-5 flex-shrink-0" />
               Visualizar
             </button>
           )}
-          <button 
+          <button
             onClick={handleDownload}
             disabled={!file.canDownload}
-            className="w-full bg-[#202020] hover:bg-[#252525] text-white px-4 py-3 rounded-lg flex items-center justify-center gap-2 font-medium transition-colors border border-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full bg-app-primary hover:bg-app-primaryHover text-white px-4 py-3 rounded-2xl flex items-center justify-center gap-2 font-medium transition-all duration-300 active:scale-[0.98] border border-transparent hover:shadow-[0_0_15px_rgba(10,132,255,0.3)] disabled:opacity-50 disabled:cursor-not-allowed"
             title={file.canDownload ? 'Baixar arquivo' : 'Você não tem permissão para baixar este arquivo'}
           >
-            <Download className="w-5 h-5" />
+            <Download className="w-5 h-5 flex-shrink-0" />
             Baixar
           </button>
-          <button 
-            disabled={!file.canShare}
-            className="w-full bg-[#202020] hover:bg-[#252525] text-white px-4 py-3 rounded-lg flex items-center justify-center gap-2 font-medium transition-colors border border-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
-            title={file.canShare ? 'Compartilhar arquivo' : 'Você não tem permissão para compartilhar este arquivo'}
-          >
-            <Share2 className="w-5 h-5" />
-            Compartilhar
-          </button>
-          <button 
-            disabled={!file.canDelete}
-            className="w-full bg-red-600/10 hover:bg-red-600/20 text-red-400 px-4 py-3 rounded-lg flex items-center justify-center gap-2 font-medium transition-colors border border-red-600/30 disabled:opacity-50 disabled:cursor-not-allowed"
-            title={file.canDelete ? 'Excluir arquivo' : 'Você não tem permissão para excluir este arquivo'}
-          >
-            <Trash2 className="w-5 h-5" />
-            Excluir
-          </button>
+
+          <div className="flex gap-3">
+            <button
+              disabled={!file.canShare}
+              className="flex-1 bg-app-surface hover:bg-app-glassHover text-app-textPrimary px-4 py-3 rounded-2xl flex items-center justify-center gap-2 font-medium transition-all duration-300 active:scale-[0.98] border border-app-glassBorder disabled:opacity-50 disabled:cursor-not-allowed"
+              title={file.canShare ? 'Compartilhar arquivo' : 'Você não tem permissão para compartilhar este arquivo'}
+            >
+              <Share2 className="w-5 h-5 flex-shrink-0" />
+              <span className="text-sm">Partilhar</span>
+            </button>
+            <button
+              disabled={!file.canDelete}
+              className="flex-1 bg-app-danger/10 hover:bg-app-danger/20 text-app-danger px-4 py-3 rounded-2xl flex items-center justify-center gap-2 font-medium transition-all duration-300 active:scale-[0.98] border border-app-danger/30 disabled:opacity-50 disabled:cursor-not-allowed"
+              title={file.canDelete ? 'Excluir arquivo' : 'Você não tem permissão para excluir este arquivo'}
+            >
+              <Trash2 className="w-5 h-5 flex-shrink-0" />
+              <span className="text-sm">Excluir</span>
+            </button>
+          </div>
         </div>
 
-        <div className="pt-6 border-t border-gray-800 space-y-4">
-          <h4 className="font-semibold text-sm text-gray-400 uppercase tracking-wider">Informações</h4>
+        <div className="pt-6 border-t border-app-glassBorder space-y-4">
+          <h4 className="font-semibold text-xs text-app-textMuted uppercase tracking-wider">Informações Técnicas</h4>
 
           <div className="space-y-4">
             <div className="flex items-start gap-3">
@@ -245,9 +248,9 @@ export function FileDetails({ file, onClose, onView, accessToken, onDownloadStar
           </div>
         </div>
 
-        <div className="pt-6 border-t border-gray-800">
-          <h4 className="font-semibold text-sm text-gray-400 uppercase tracking-wider mb-3">Atividade</h4>
-          <div className="space-y-3">
+        <div className="pt-6 border-t border-app-glassBorder">
+          <h4 className="font-semibold text-xs text-app-textMuted uppercase tracking-wider mb-4">Atividade Recente</h4>
+          <div className="space-y-4">
             <div className="flex gap-3">
               <div className="w-8 h-8 bg-gray-700 rounded-full flex items-center justify-center flex-shrink-0">
                 {file.ownerPhoto ? (

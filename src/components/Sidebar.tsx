@@ -31,7 +31,7 @@ export function Sidebar({ viewMode, onViewModeChange, onFolderClick, accessToken
   const [activeColorPicker, setActiveColorPicker] = useState<string | null>(null);
   const [folderMenuOpen, setFolderMenuOpen] = useState<string | null>(null);
   const sidebarRef = useRef<HTMLDivElement | null>(null);
-  
+
   // Prioriza informações do Firebase (siteUser), usa Google como fallback
   const displayName = siteUser?.name || userInfo?.name || (siteUser?.email ? siteUser.email.split('@')[0] : null) || (userInfo?.email ? userInfo.email.split('@')[0] : null) || 'Usuário';
   const displayEmail = siteUser?.email || userInfo?.email || '';
@@ -61,16 +61,16 @@ export function Sidebar({ viewMode, onViewModeChange, onFolderClick, accessToken
       if (pinnedTimeout) {
         clearTimeout(pinnedTimeout);
       }
-      
+
       pinnedTimeout = setTimeout(async () => {
         if (isUpdating) {
           console.log('[Sidebar] Atualização já em andamento, ignorando...');
           return;
         }
-        
+
         isUpdating = true;
         console.log('[Sidebar] Evento pinnedFolderChanged recebido, atualizando lista...');
-        
+
         try {
           // Força refresh (ignora cache) para garantir dados atualizados
           const pinned = await getPinnedFolders(true);
@@ -90,16 +90,16 @@ export function Sidebar({ viewMode, onViewModeChange, onFolderClick, accessToken
       if (favoriteTimeout) {
         clearTimeout(favoriteTimeout);
       }
-      
+
       favoriteTimeout = setTimeout(async () => {
         if (isUpdating) {
           console.log('[Sidebar] Atualização já em andamento, ignorando...');
           return;
         }
-        
+
         isUpdating = true;
         console.log('[Sidebar] Evento favoriteFolderChanged recebido, atualizando lista...');
-        
+
         try {
           // Força refresh (ignora cache) para garantir dados atualizados
           const favorited = await getFavoritedFolders(true);
@@ -114,7 +114,7 @@ export function Sidebar({ viewMode, onViewModeChange, onFolderClick, accessToken
     window.addEventListener('pinnedFolderChanged', handlePinnedFolderChange);
     window.addEventListener('folderColorChanged', handlePinnedFolderChange);
     window.addEventListener('favoriteFolderChanged', handleFavoriteFolderChange);
-    
+
     return () => {
       if (pinnedTimeout) clearTimeout(pinnedTimeout);
       if (favoriteTimeout) clearTimeout(favoriteTimeout);
@@ -159,7 +159,7 @@ export function Sidebar({ viewMode, onViewModeChange, onFolderClick, accessToken
   const handleFolderClick = (folderId: string, e: React.MouseEvent) => {
     e.stopPropagation();
     setActiveColorPicker(null);
-    
+
     // No mobile, abre o menu de opções; no desktop, abre a pasta diretamente
     if (isMobile()) {
       setFolderMenuOpen((prev) => (prev === folderId ? null : folderId));
@@ -233,7 +233,7 @@ export function Sidebar({ viewMode, onViewModeChange, onFolderClick, accessToken
       ref={sidebarRef}
       className={`
       fixed lg:static inset-y-0 left-0 z-50
-      w-64 bg-[#1a1a1a] border-r border-gray-800 
+      w-64 glass-panel border-r border-app-glassBorder shadow-none rounded-none
       flex flex-col transform transition-transform duration-300 ease-in-out
       ${isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
     `}
@@ -257,10 +257,12 @@ export function Sidebar({ viewMode, onViewModeChange, onFolderClick, accessToken
 
         <button
           onClick={() => setShowAddModal(true)}
-          className="w-full bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg flex items-center gap-3 font-medium transition-colors"
+          className="w-full bg-app-surface border border-app-glassBorder hover:border-app-primary/50 hover:shadow-[0_0_15px_rgba(10,132,255,0.2)] text-app-textPrimary px-6 py-3 rounded-2xl flex items-center justify-center gap-3 font-medium transition-all duration-300 group"
         >
-          <Plus className="w-5 h-5" />
-          Novo
+          <div className="w-6 h-6 rounded-full bg-app-primary flex items-center justify-center group-hover:scale-110 transition-transform">
+            <Plus className="w-4 h-4 text-white" />
+          </div>
+          Novo Arquivo
         </button>
       </div>
 
@@ -270,19 +272,18 @@ export function Sidebar({ viewMode, onViewModeChange, onFolderClick, accessToken
             <button
               key={item.label}
               onClick={() => onViewModeChange(item.mode)}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
-                viewMode === item.mode
-                  ? 'bg-gray-800 text-white'
-                  : 'text-gray-400 hover:bg-gray-800/50 hover:text-white'
-              }`}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl transition-all duration-300 active:scale-[0.98] border border-transparent ${viewMode === item.mode
+                ? 'bg-app-primary/10 text-app-primary border-app-primary/20 font-medium'
+                : 'text-gray-400 hover:bg-app-glassHover hover:text-white hover:border-app-glassBorder'
+                }`}
             >
-              <item.icon className="w-5 h-5" />
-              <span className="font-medium">{item.label}</span>
+              <item.icon className="w-5 h-5 flex-shrink-0" />
+              <span className="font-medium text-sm">{item.label}</span>
             </button>
           ))}
 
-          <div className="pt-6 pb-2 px-4">
-            <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Pastas</h3>
+          <div className="pt-6 pb-2 px-4 flex items-center justify-between">
+            <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Suas Pastas</h3>
           </div>
 
           {(() => {
@@ -313,26 +314,26 @@ export function Sidebar({ viewMode, onViewModeChange, onFolderClick, accessToken
               return (
                 <div
                   key={folderId}
-                  className="group relative flex items-center gap-2 px-4 py-2.5 rounded-lg text-gray-400 hover:bg-gray-800/50 hover:text-white transition-colors"
+                  className="group relative flex items-center gap-2 py-1 rounded-2xl text-gray-400 hover:bg-app-glassHover hover:text-white transition-all border border-transparent hover:border-app-glassBorder"
                 >
                   <button
                     onClick={(e) => handleFolderClick(folderId, e)}
-                    className="flex-1 flex items-center gap-3 text-left"
+                    className="flex-1 flex items-center gap-3 text-left w-full overflow-hidden py-1.5 transition-all duration-300 active:scale-[0.98]"
                   >
                     <div
-                      className="w-8 h-8 rounded-lg border border-gray-800/60 flex items-center justify-center bg-[#0f0f0f]"
-                      style={{ boxShadow: `0 0 0 1px ${folderColor}33` }}
+                      className="w-8 h-8 rounded-xl bg-app-surface border border-app-glassBorder flex flex-shrink-0 items-center justify-center transition-transform group-hover:scale-105"
+                      style={{ boxShadow: `0 2px 8px ${folderColor}20` }}
                     >
-                      <Folder className="w-4 h-4 flex-shrink-0" style={{ color: folderColor }} />
+                      <Folder className="w-4 h-4" style={{ color: folderColor }} />
                     </div>
-                    <span className="font-medium truncate flex items-center gap-2">
-                      {folderName}
+                    <span className="font-medium text-sm flex-1 flex items-center justify-between min-w-0">
+                      <span className="truncate mr-2">{folderName}</span>
                       {isPinnedOnly && (
-                        <Pin className="w-3 h-3 text-blue-400 flex-shrink-0" title="Fixada" />
+                        <Pin className="w-3 h-3 text-app-primary flex-shrink-0" title="Fixada" />
                       )}
                     </span>
                   </button>
-                  
+
                   {/* Botões de ação - apenas visíveis no desktop com hover */}
                   <button
                     onClick={(e) => handleOpenColorPicker(folderId, e)}
@@ -362,7 +363,7 @@ export function Sidebar({ viewMode, onViewModeChange, onFolderClick, accessToken
                   {/* Menu mobile - aparece quando folderMenuOpen === folderId */}
                   {folderMenuOpen === folderId && (
                     <>
-                      <div 
+                      <div
                         className="fixed inset-0 bg-black/50 z-[60] lg:hidden"
                         onClick={(e) => {
                           e.stopPropagation();
@@ -422,9 +423,8 @@ export function Sidebar({ viewMode, onViewModeChange, onFolderClick, accessToken
                           <button
                             key={color}
                             onClick={(e) => handleColorChange(folderId, color, e)}
-                            className={`w-8 h-8 rounded-lg border-2 transition-transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-[#1f1f1f] focus:ring-blue-500 ${
-                              folderColor === color ? 'border-white' : 'border-transparent'
-                            }`}
+                            className={`w-8 h-8 rounded-lg border-2 transition-transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-[#1f1f1f] focus:ring-blue-500 ${folderColor === color ? 'border-white' : 'border-transparent'
+                              }`}
                             style={{ backgroundColor: color }}
                             title={`Usar cor ${color}`}
                             type="button"
@@ -446,7 +446,7 @@ export function Sidebar({ viewMode, onViewModeChange, onFolderClick, accessToken
               e.stopPropagation();
               setShowUserSidebar(!showUserSidebar);
             }}
-            className="w-full flex items-center justify-center gap-3 px-4 py-3 rounded-lg transition-colors text-gray-400 hover:bg-gray-800/50 hover:text-white lg:hidden"
+            className="w-full flex items-center justify-center gap-3 px-4 py-3 rounded-lg transition-all duration-300 active:scale-[0.98] text-gray-400 hover:bg-gray-800/50 hover:text-white lg:hidden"
             aria-label="Menu do usuário"
           >
             {displayPicture ? (
@@ -480,28 +480,28 @@ export function Sidebar({ viewMode, onViewModeChange, onFolderClick, accessToken
       {/* Menu lateral do usuário - Mobile */}
       {showUserSidebar && (
         <>
-          <div 
-            className="fixed inset-0 bg-black/50 z-[70] lg:hidden"
+          <div
+            className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[70] lg:hidden animate-fade-in"
             onClick={(e) => {
               e.stopPropagation();
               setShowUserSidebar(false);
             }}
             style={{ cursor: 'pointer' }}
           />
-          <div 
+          <div
             className={`
               fixed inset-y-0 right-0 z-[71] lg:hidden
-              w-full sm:w-80 bg-[#1a1a1a] border-l border-gray-800
-              flex flex-col transform transition-transform duration-300 ease-in-out
+              w-full sm:w-80 bg-app-surface/95 backdrop-blur-xl border-l border-app-glassBorder shadow-2xl
+              flex flex-col transform transition-transform duration-300 ease-out
               ${showUserSidebar ? 'translate-x-0' : 'translate-x-full'}
             `}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="p-4 sm:p-6 border-b border-gray-800 flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-white">Conta</h2>
+            <div className="p-4 sm:p-6 border-b border-app-glassBorder flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-app-textPrimary">Sua Conta</h2>
               <button
                 onClick={() => setShowUserSidebar(false)}
-                className="p-2 hover:bg-gray-800 active:bg-gray-700 rounded-lg transition-colors touch-manipulation"
+                className="p-2 hover:bg-app-glassHover rounded-full transition-colors bg-gray-800/30 touch-manipulation"
                 aria-label="Fechar menu"
               >
                 <X className="w-5 h-5 text-gray-400" />
@@ -510,42 +510,49 @@ export function Sidebar({ viewMode, onViewModeChange, onFolderClick, accessToken
 
             <div className="flex-1 overflow-y-auto">
               {/* Informações do usuário ocultadas */}
-              
+
               {/* Menu de opções */}
-              <div className="py-2">
+              <div className="py-2 px-4 space-y-2">
                 <button
                   onClick={() => {
                     setShowUserSidebar(false);
                     setShowAccountManager(true);
                   }}
-                  className="w-full px-4 sm:px-6 py-3 text-left text-sm text-gray-300 hover:bg-gray-800 active:bg-gray-700 transition-colors flex items-center gap-3 touch-manipulation"
+                  className="w-full px-4 py-3 text-left text-sm text-app-textPrimary hover:bg-app-glassHover active:scale-[0.98] rounded-2xl transition-all flex items-center gap-3 border border-transparent hover:border-app-glassBorder touch-manipulation"
                 >
-                  <User className="w-5 h-5 text-gray-400" />
-                  <span>Minhas Contas</span>
+                  <div className="w-8 h-8 rounded-full bg-app-primary/10 flex items-center justify-center text-app-primary">
+                    <User className="w-4 h-4" />
+                  </div>
+                  <span className="font-medium">Minhas Contas</span>
                 </button>
 
                 <button
                   onClick={() => {
-                    // TODO: Implementar tela de configurações
                     setShowUserSidebar(false);
                   }}
-                  className="w-full px-4 sm:px-6 py-3 text-left text-sm text-gray-300 hover:bg-gray-800 active:bg-gray-700 transition-colors flex items-center gap-3 touch-manipulation"
+                  className="w-full px-4 py-3 text-left text-sm text-app-textPrimary hover:bg-app-glassHover active:scale-[0.98] rounded-2xl transition-all flex items-center gap-3 border border-transparent hover:border-app-glassBorder touch-manipulation"
                 >
-                  <Settings className="w-5 h-5 text-gray-400" />
-                  <span>Configurações</span>
+                  <div className="w-8 h-8 rounded-full bg-gray-800 flex items-center justify-center text-gray-300">
+                    <Settings className="w-4 h-4" />
+                  </div>
+                  <span className="font-medium">Configurações</span>
                 </button>
 
                 {onLogout && (
-                  <button
-                    onClick={() => {
-                      onLogout();
-                      setShowUserSidebar(false);
-                    }}
-                    className="w-full px-4 sm:px-6 py-3 text-left text-sm text-red-400 hover:bg-red-500/10 active:bg-red-500/20 transition-colors flex items-center gap-3 touch-manipulation mt-2 border-t border-gray-800"
-                  >
-                    <LogOut className="w-5 h-5 text-red-400" />
-                    <span>Sair</span>
-                  </button>
+                  <div className="pt-4 mt-2 border-t border-app-glassBorder">
+                    <button
+                      onClick={() => {
+                        onLogout();
+                        setShowUserSidebar(false);
+                      }}
+                      className="w-full px-4 py-3 text-left text-sm text-app-danger hover:bg-app-danger/10 active:scale-[0.98] rounded-2xl transition-all flex items-center gap-3 touch-manipulation"
+                    >
+                      <div className="w-8 h-8 rounded-full bg-app-danger/10 flex items-center justify-center text-app-danger">
+                        <LogOut className="w-4 h-4" />
+                      </div>
+                      <span className="font-medium">Sair</span>
+                    </button>
+                  </div>
                 )}
               </div>
             </div>

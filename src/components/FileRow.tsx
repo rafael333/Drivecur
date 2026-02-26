@@ -82,10 +82,10 @@ export function FileRow({ file, isSelected, onClick, onDoubleClick, isEven, hasA
       const folderName = file.name || file.originalName || '';
       const wasPinned = await togglePinFolder(file.id, folderName);
       setShowMenu(false);
-      
+
       // Dispara evento após a operação ser concluída
       window.dispatchEvent(new CustomEvent('pinnedFolderChanged', { detail: { folderId: file.id, pinned: wasPinned } }));
-      
+
       if (onColorChange) {
         onColorChange();
       }
@@ -114,31 +114,31 @@ export function FileRow({ file, isSelected, onClick, onDoubleClick, isEven, hasA
   const handleDownloadFolder = async (e: React.MouseEvent) => {
     e.stopPropagation();
     e.preventDefault();
-    
+
     if (!isFolder) {
       console.warn('[handleDownloadFolder] Não é uma pasta');
       return;
     }
-    
+
     if (!accessToken) {
       console.warn('[handleDownloadFolder] Sem accessToken');
       alert('Token de acesso necessário. Faça login novamente.');
       return;
     }
-    
+
     if (!file.id) {
       console.warn('[handleDownloadFolder] Sem ID da pasta');
       alert('ID da pasta não encontrado.');
       return;
     }
-    
+
     setShowMenu(false);
-    
+
     const folderName = file.name || file.originalName || 'Pasta';
     console.log('[handleDownloadFolder] Iniciando download:', folderName, file.id);
-    
+
     const folderDownloadId = onDownloadStart ? onDownloadStart(`${folderName} (pasta)`) : null;
-    
+
     try {
       await downloadFolder(
         file.id,
@@ -152,11 +152,11 @@ export function FileRow({ file, isSelected, onClick, onDoubleClick, isEven, hasA
         onDownloadComplete,
         onDownloadError
       );
-      
+
       if (folderDownloadId && onDownloadComplete) {
         onDownloadComplete(folderDownloadId);
       }
-      
+
       console.log('[handleDownloadFolder] Download concluído');
     } catch (error: any) {
       console.error('[handleDownloadFolder] Erro ao baixar pasta:', error);
@@ -172,10 +172,10 @@ export function FileRow({ file, isSelected, onClick, onDoubleClick, isEven, hasA
     e.stopPropagation();
     if (!isFolder && accessToken && file.canDownload) {
       setShowMenu(false);
-      
+
       const fileName = file.originalName || file.name || 'download';
       const downloadId = onDownloadStart ? onDownloadStart(fileName) : null;
-      
+
       try {
         await downloadFile(
           file,
@@ -184,7 +184,7 @@ export function FileRow({ file, isSelected, onClick, onDoubleClick, isEven, hasA
             ? (progress) => onDownloadProgress(downloadId, progress)
             : undefined
         );
-        
+
         if (downloadId && onDownloadComplete) {
           onDownloadComplete(downloadId);
         }
@@ -205,13 +205,10 @@ export function FileRow({ file, isSelected, onClick, onDoubleClick, isEven, hasA
 
   return (
     <tr
-      className={`border-b border-gray-800/50 cursor-pointer transition-all group ${
-        isSelected
-          ? 'bg-blue-600/20 border-blue-600/50'
-          : isEven
-          ? 'hover:bg-[#1f1f1f]'
-          : 'bg-[#161616] hover:bg-[#1f1f1f]'
-      }`}
+      className={`border-b border-app-glassBorder cursor-pointer transition-all duration-300 group ${isSelected
+        ? 'bg-app-primary/10 relative after:absolute after:left-0 after:top-0 after:bottom-0 after:w-1 after:bg-app-primary focus:outline-none'
+        : 'hover:bg-app-glassHover/50 bg-transparent active:scale-[0.99] active:bg-app-glassHover'
+        }`}
       onClick={onClick}
       onDoubleClick={onDoubleClick}
       onMouseEnter={() => setShowActions(true)}
@@ -237,9 +234,9 @@ export function FileRow({ file, isSelected, onClick, onDoubleClick, isEven, hasA
               <Users className="w-4 h-4 text-blue-400" title="Compartilhado" />
             )}
             {hasAnnotations && (
-              <MessageSquare 
-                className="w-4 h-4 text-yellow-500 fill-yellow-500/20" 
-                title={file.type === 'folder' ? 'Contém vídeos com anotações' : 'Tem anotações'} 
+              <MessageSquare
+                className="w-4 h-4 text-yellow-500 fill-yellow-500/20"
+                title={file.type === 'folder' ? 'Contém vídeos com anotações' : 'Tem anotações'}
               />
             )}
           </div>
@@ -251,11 +248,10 @@ export function FileRow({ file, isSelected, onClick, onDoubleClick, isEven, hasA
       <td className="py-4 px-6">
         <div className="relative" ref={menuRef}>
           <button
-            className={`p-2 rounded-lg transition-all ${
-              showActions || showMenu || showColorPicker
-                ? 'opacity-100 hover:bg-gray-700'
-                : 'opacity-0 group-hover:opacity-100'
-            }`}
+            className={`p-2 rounded-xl transition-all ${showActions || showMenu || showColorPicker
+              ? 'opacity-100 bg-app-glassHover'
+              : 'opacity-0 group-hover:opacity-100'
+              }`}
             onClick={(e) => {
               e.stopPropagation();
               setShowMenu(!showMenu);
@@ -268,7 +264,7 @@ export function FileRow({ file, isSelected, onClick, onDoubleClick, isEven, hasA
           {/* Menu de contexto para pastas e arquivos */}
           {showMenu && (
             <div
-              className="absolute right-0 top-full mt-1 bg-[#1f1f1f] border border-gray-800 rounded-lg shadow-xl z-50 min-w-[180px]"
+              className="absolute right-0 top-full mt-2 glass-panel border border-app-glassBorder shadow-glass z-50 min-w-[200px]"
               onClick={(e) => e.stopPropagation()}
             >
               <div className="p-2">
@@ -280,7 +276,7 @@ export function FileRow({ file, isSelected, onClick, onDoubleClick, isEven, hasA
                         setShowMenu(false);
                         setShowColorPicker(true);
                       }}
-                      className="w-full px-4 py-2.5 text-left text-sm text-gray-300 hover:bg-gray-800 active:bg-gray-700 rounded-lg transition-colors flex items-center gap-3"
+                      className="w-full px-4 py-2.5 text-left text-sm text-app-textSecondary hover:text-white hover:bg-app-glassHover rounded-xl transition-colors flex items-center gap-3"
                     >
                       <Palette className="w-4 h-4" style={folderColor ? { color: folderColor } : undefined} />
                       <span>Mudar cor</span>
@@ -288,7 +284,7 @@ export function FileRow({ file, isSelected, onClick, onDoubleClick, isEven, hasA
                     {folderColor && (
                       <button
                         onClick={handleRemoveColor}
-                        className="w-full px-4 py-2.5 text-left text-sm text-gray-300 hover:bg-gray-800 active:bg-gray-700 rounded-lg transition-colors flex items-center gap-3"
+                        className="w-full px-4 py-2.5 text-left text-sm text-app-textSecondary hover:text-white hover:bg-app-glassHover rounded-xl transition-colors flex items-center gap-3"
                       >
                         <X className="w-4 h-4" />
                         <span>Remover cor</span>
@@ -296,7 +292,7 @@ export function FileRow({ file, isSelected, onClick, onDoubleClick, isEven, hasA
                     )}
                     <button
                       onClick={handlePinToggle}
-                      className="w-full px-4 py-2.5 text-left text-sm text-gray-300 hover:bg-gray-800 active:bg-gray-700 rounded-lg transition-colors flex items-center gap-3"
+                      className="w-full px-4 py-2.5 text-left text-sm text-app-textSecondary hover:text-white hover:bg-app-glassHover rounded-xl transition-colors flex items-center gap-3"
                     >
                       <Pin className={`w-4 h-4 ${isPinned ? 'text-blue-400 fill-blue-400' : ''}`} />
                       <span>{isPinned ? 'Desfixar' : 'Fixar'}</span>
@@ -310,10 +306,10 @@ export function FileRow({ file, isSelected, onClick, onDoubleClick, isEven, hasA
                     </button>
                     <button
                       onClick={handleDownloadFolder}
-                      className="w-full px-4 py-2.5 text-left text-sm text-gray-300 hover:bg-gray-800 active:bg-gray-700 rounded-lg transition-colors flex items-center gap-3"
+                      className="w-full px-4 py-2.5 text-left text-sm text-app-textSecondary hover:text-white hover:bg-app-glassHover rounded-xl transition-colors flex items-center gap-3 mt-1 pt-3 border-t border-app-glassBorder"
                       title="Baixar pasta inteira"
                     >
-                      <FolderDown className="w-4 h-4 text-blue-400" />
+                      <FolderDown className="w-4 h-4 text-app-primary" />
                       <span>Baixar pasta</span>
                     </button>
                   </>
@@ -325,7 +321,7 @@ export function FileRow({ file, isSelected, onClick, onDoubleClick, isEven, hasA
                         setShowMenu(false);
                         setShowColorPicker(true);
                       }}
-                      className="w-full px-4 py-2.5 text-left text-sm text-gray-300 hover:bg-gray-800 active:bg-gray-700 rounded-lg transition-colors flex items-center gap-3"
+                      className="w-full px-4 py-2.5 text-left text-sm text-app-textSecondary hover:text-white hover:bg-app-glassHover rounded-xl transition-colors flex items-center gap-3"
                     >
                       <Palette className="w-4 h-4" style={fileTextColor ? { color: fileTextColor } : undefined} />
                       <span>Mudar cor do texto</span>
@@ -333,7 +329,7 @@ export function FileRow({ file, isSelected, onClick, onDoubleClick, isEven, hasA
                     {fileTextColor && (
                       <button
                         onClick={handleRemoveColor}
-                        className="w-full px-4 py-2.5 text-left text-sm text-gray-300 hover:bg-gray-800 active:bg-gray-700 rounded-lg transition-colors flex items-center gap-3"
+                        className="w-full px-4 py-2.5 text-left text-sm text-app-textSecondary hover:text-white hover:bg-app-glassHover rounded-xl transition-colors flex items-center gap-3"
                       >
                         <X className="w-4 h-4" />
                         <span>Remover cor</span>
@@ -341,7 +337,7 @@ export function FileRow({ file, isSelected, onClick, onDoubleClick, isEven, hasA
                     )}
                     <button
                       onClick={handleFavoriteToggle}
-                      className="w-full px-4 py-2.5 text-left text-sm text-gray-300 hover:bg-gray-800 active:bg-gray-700 rounded-lg transition-colors flex items-center gap-3"
+                      className="w-full px-4 py-2.5 text-left text-sm text-app-textSecondary hover:text-white hover:bg-app-glassHover rounded-xl transition-colors flex items-center gap-3"
                     >
                       <Star className={`w-4 h-4 ${isFavorite ? 'text-yellow-400 fill-yellow-400' : ''}`} />
                       <span>{isFavorite ? 'Remover dos favoritos' : 'Favoritar'}</span>
@@ -349,7 +345,7 @@ export function FileRow({ file, isSelected, onClick, onDoubleClick, isEven, hasA
                     <button
                       onClick={handleDownload}
                       disabled={!file.canDownload || !accessToken}
-                      className="w-full px-4 py-2.5 text-left text-sm text-gray-300 hover:bg-gray-800 active:bg-gray-700 rounded-lg transition-colors flex items-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="w-full px-4 py-2.5 text-left text-sm text-app-textSecondary hover:text-white hover:bg-app-glassHover rounded-xl transition-colors flex items-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed mt-1 pt-3 border-t border-app-glassBorder"
                       title={file.canDownload ? 'Baixar arquivo' : 'Você não tem permissão para baixar este arquivo'}
                     >
                       <Download className="w-4 h-4" />
@@ -364,7 +360,7 @@ export function FileRow({ file, isSelected, onClick, onDoubleClick, isEven, hasA
           {/* Seletor de cores */}
           {showColorPicker && (
             <div
-              className="absolute right-0 top-full mt-1 bg-[#1f1f1f] border border-gray-800 rounded-lg shadow-xl p-3 z-50"
+              className="absolute right-0 top-full mt-2 glass-panel border border-app-glassBorder shadow-glass p-3 z-50 min-w-[220px]"
               onClick={(e) => e.stopPropagation()}
             >
               <div className="flex items-center justify-between mb-2">
@@ -386,7 +382,7 @@ export function FileRow({ file, isSelected, onClick, onDoubleClick, isEven, hasA
                     handleRemoveColor(e);
                     setShowColorPicker(false);
                   }}
-                  className="w-full mb-2 px-3 py-2 text-sm text-gray-300 hover:bg-gray-800 active:bg-gray-700 rounded-lg transition-colors flex items-center justify-center gap-2"
+                  className="w-full mb-3 px-3 py-2.5 text-sm text-app-textSecondary hover:text-white hover:bg-app-glassHover/80 rounded-xl transition-colors flex items-center justify-center gap-2 border border-app-glassBorder"
                 >
                   <X className="w-4 h-4" />
                   <span>Remover cor</span>
@@ -397,9 +393,8 @@ export function FileRow({ file, isSelected, onClick, onDoubleClick, isEven, hasA
                   <button
                     key={color}
                     onClick={(e) => handleColorChange(color, e)}
-                    className={`w-8 h-8 rounded-lg border-2 transition-transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-[#1f1f1f] focus:ring-blue-500 ${
-                      (isFolder ? folderColor : fileTextColor) === color ? 'border-white' : 'border-transparent'
-                    }`}
+                    className={`w-8 h-8 rounded-full shadow-sm transition-transform hover:scale-110 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-app-surface focus:ring-app-primary ${(isFolder ? folderColor : fileTextColor) === color ? 'ring-2 ring-white scale-110' : ''
+                      }`}
                     style={{ backgroundColor: color }}
                     title={`Usar cor ${color}`}
                     type="button"

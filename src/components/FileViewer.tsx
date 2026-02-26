@@ -51,20 +51,20 @@ export function FileViewer({ file, onClose, accessToken }: FileViewerProps) {
     // Verifica pela extensão
     if (file.extension) {
       const videoExts = ['.mp4', '.avi', '.mov', '.wmv', '.webm', '.mkv', '.mpeg', '.flv', '.mpg', '.m4v', '.3gp', '.ts', '.m2ts', '.mts'];
-      if (videoExts.some(ext => file.extension?.toLowerCase().includes(ext.toLowerCase()))) {
+      if (videoExts.some(e => file.extension?.toLowerCase().includes(e.toLowerCase()))) {
         return true;
       }
     }
-    
+
     // Verifica pelo nome do arquivo
     if (file.originalName || file.name) {
       const name = (file.originalName || file.name).toLowerCase();
       const videoExts = ['.mp4', '.avi', '.mov', '.wmv', '.webm', '.mkv', '.mpeg', '.flv', '.mpg', '.m4v', '.3gp', '.ts', '.m2ts', '.mts'];
-      if (videoExts.some(ext => name.endsWith(ext))) {
+      if (videoExts.some(e => name.endsWith(e))) {
         return true;
       }
     }
-    
+
     return false;
   };
 
@@ -79,10 +79,10 @@ export function FileViewer({ file, onClose, accessToken }: FileViewerProps) {
 
     // PDFs - usa visualizador customizado
     // Verifica pelo tipo ou pela extensão/nome do arquivo
-    const isPdf = file.type === 'pdf' || 
-                  file.extension?.toLowerCase() === '.pdf' ||
-                  (file.originalName || file.name || '').toLowerCase().endsWith('.pdf');
-    
+    const isPdf = file.type === 'pdf' ||
+      file.extension?.toLowerCase() === '.pdf' ||
+      (file.originalName || file.name || '').toLowerCase().endsWith('.pdf');
+
     if (isPdf) {
       console.log('[FileViewer] Detectado PDF:', file.name, 'tipo:', file.type, 'extensão:', file.extension);
       return <PDFViewer file={file} accessToken={accessToken} />;
